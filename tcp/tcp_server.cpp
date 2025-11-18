@@ -2,12 +2,13 @@
 #include <iostream>
 #include <algorithm>
 
-TCPServer::TCPServer(int port) : port_(port), running_(false), acceptor_(io_context_), work_(boost::asio::make_work_guard(io_context_)) {}
+TCPServer::TCPServer(int port) : port_(port), running_(false), acceptor_(io_context_), work_(boost::asio::make_work_guard(io_context_)), hasAcceptedConnection_(false) {}
 
 TCPServer::~TCPServer() { stop(); }
 
 bool TCPServer::start() {
     try {
+        hasAcceptedConnection_ = false;
         tcp::endpoint endpoint(tcp::v4(), port_);
         acceptor_.open(endpoint.protocol());
         acceptor_.set_option(tcp::acceptor::reuse_address(true));
@@ -31,6 +32,7 @@ bool TCPServer::start() {
 
 void TCPServer::stop() {
     running_ = false;
+    hasAcceptedConnection_ = false;
     io_context_.stop();
     if (serverThread_.joinable()) {
         serverThread_.join();
@@ -65,9 +67,10 @@ void TCPServer::start_accept() {
                 std::lock_guard<std::mutex> lock(clientsMutex_);
                 clients_.push_back(socket);
             }
+            hasAcceptedConnection_ = true;
             start_read(socket);
         }
-        if (running_) {
+        if (running_ && !hasAcceptedConnection_) {
             start_accept();
         }
     });
@@ -92,6 +95,11 @@ void TCPServer::start_read(std::shared_ptr<tcp::socket> socket) {
             // Remove client
             std::lock_guard<std::mutex> lock(clientsMutex_);
             clients_.erase(std::remove(clients_.begin(), clients_.end(), socket), clients_.end());
+            // Reset to allow new connection
+            hasAcceptedConnection_ = false;
+            if (running_) {
+                start_accept();
+            }
         }
     });
 }

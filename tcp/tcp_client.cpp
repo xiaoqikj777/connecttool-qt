@@ -43,9 +43,10 @@ void TCPClient::send(const std::string& message) {
 void TCPClient::send(const char* data, size_t size) {
     if (!connected_) return;
     // std::cout << "Sending " << size << " bytes" << std::endl;
-    boost::asio::async_write(*socket_, boost::asio::buffer(data, size), [](const boost::system::error_code& error, std::size_t) {
+    boost::asio::async_write(*socket_, boost::asio::buffer(data, size), [this](const boost::system::error_code& error, std::size_t) {
         if (error) {
             std::cerr << "Send failed: " << error.message() << std::endl;
+            disconnect();
         }
     });
 }
@@ -75,7 +76,11 @@ void TCPClient::handle_read(const boost::system::error_code& error, std::size_t 
         }
         start_read();
     } else {
-        std::cerr << "Read failed: " << error.message() << std::endl;
+        if (error == boost::asio::error::eof) {
+            std::cout << "Connection closed by peer" << std::endl;
+        } else {
+            std::cerr << "Read failed: " << error.message() << std::endl;
+        }
         disconnect();
     }
 }

@@ -9,6 +9,7 @@
 #include <mutex>
 #include <map>
 #include <algorithm>
+#include <cstring>
 #include <steam_api.h>
 #include <isteamnetworkingsockets.h>
 #include <isteamnetworkingutils.h>
@@ -17,6 +18,7 @@
 #include <memory>
 #include "tcp_server.h"
 #include "tcp/tcp_client.h"
+#include "steam_message_handler.h"
 
 using boost::asio::ip::tcp;
 
@@ -192,6 +194,12 @@ int main() {
     g_connectionConfig[0].SetInt32(k_ESteamNetworkingConfig_TimeoutInitial, 10000); // 10 seconds initial timeout
     g_connectionConfig[1].SetInt32(k_ESteamNetworkingConfig_NagleTime, 0); // Disable Nagle for UDP
 
+    // Initialize boost::asio io_context
+    boost::asio::io_context io_context;
+
+    // Create Steam Message Handler
+    SteamMessageHandler messageHandler(io_context, m_pInterface, connections, clientMap, clientMutex, server, g_isHost, localPort);
+
     // Initialize GLFW
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -223,17 +231,6 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
 
-    // TCP Client for local port forwarding
-    // Removed: TCPClient* client = nullptr;
-    // Removed: bool isLocalConnected = false;
-
-    // Steam Networking variables
-    bool isHost = false;
-    bool isClient = false;
-    char joinBuffer[256] = "";
-    char filterBuffer[256] = "";
-    // Removed: char portBuffer[256] = "";
-
     // Get friends list
     std::vector<std::pair<CSteamID, std::string>> friendsList;
     int friendCount = SteamFriends()->GetFriendCount(k_EFriendFlagAll);
@@ -243,6 +240,15 @@ int main() {
         friendsList.push_back({friendID, name});
     }
 
+    // Start message handler
+    messageHandler.start();
+
+    // Steam Networking variables
+    bool isHost = false;
+    bool isClient = false;
+    char joinBuffer[256] = "";
+    char filterBuffer[256] = "";
+
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         // Poll events
@@ -250,59 +256,6 @@ int main() {
 
         // Run Steam callbacks
         SteamAPI_RunCallbacks();
-
-        // Poll networking
-        m_pInterface->RunCallbacks();
-
-        // Update user info
-        {
-            std::lock_guard<std::mutex> lock(clientMutex);
-            for (auto conn : connections) {
-                SteamNetConnectionInfo_t info;
-                SteamNetConnectionRealTimeStatus_t status;
-                if (m_pInterface->GetConnectionInfo(conn, &info) && m_pInterface->GetConnectionRealTimeStatus(conn, &status, 0, nullptr)) {
-                    if (userMap.count(conn)) {
-                        userMap[conn].ping = status.m_nPing;
-                        userMap[conn].isRelay = (info.m_idPOPRelay != 0);
-                    }
-                }
-            }
-        }
-
-        // Receive messages from Steam and forward to TCP server
-        {
-            std::lock_guard<std::mutex> lock(clientMutex);
-            for (auto conn : connections) {
-                ISteamNetworkingMessage* pIncomingMsg = nullptr;
-                int numMsgs = m_pInterface->ReceiveMessagesOnConnection(conn, &pIncomingMsg, 1);
-                if (numMsgs > 0 && pIncomingMsg) {
-                    // std::cout << "Received " << pIncomingMsg->m_cbSize << " bytes" << std::endl;
-                    if (server) {
-                        server->sendToAll((const char*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize);
-                    }
-                    // Lazy connect: Create TCP Client on first message if not already connected
-                    if (clientMap.find(conn) == clientMap.end() && g_isHost && localPort > 0) {
-                        TCPClient* client = new TCPClient("localhost", localPort);
-                        if (client->connect()) {
-                            client->setReceiveCallback([conn](const char* data, size_t size) {
-                                std::lock_guard<std::mutex> lock(clientMutex);
-                                m_pInterface->SendMessageToConnection(conn, data, size, k_nSteamNetworkingSend_Reliable, nullptr);
-                            });
-                            clientMap[conn] = client;
-                            std::cout << "Created TCP Client for connection on first message" << std::endl;
-                        } else {
-                            std::cerr << "Failed to connect TCP Client for connection" << std::endl;
-                            delete client;
-                        }
-                    }
-                    // Send to corresponding TCP client if exists (for host)
-                    if (clientMap.count(conn)) {
-                        clientMap[conn]->send((const char*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize);
-                    }
-                    pIncomingMsg->Release();
-                }
-            }
-        }
 
         // Start ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -430,6 +383,9 @@ int main() {
         // Swap buffers
         glfwSwapBuffers(window);
     }
+
+    // Stop message handler
+    messageHandler.stop();
 
     // Cleanup
     if (g_hConnection != k_HSteamNetConnection_Invalid) {

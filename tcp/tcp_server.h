@@ -42,4 +42,5 @@ private:
     std::vector<std::shared_ptr<tcp::socket>> clients_;
     std::mutex clientsMutex_;
     std::thread serverThread_;
+    bool hasAcceptedConnection_;
 };

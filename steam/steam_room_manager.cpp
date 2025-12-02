@@ -142,7 +142,7 @@ void SteamMatchmakingCallbacks::OnLobbyChatUpdate(LobbyChatUpdate_t *pCallback)
         return;
     }
 
-    CSteamID changedUser = pCallback->m_steamIDUserChanged;
+    CSteamID changedUser = CSteamID(pCallback->m_ulSteamIDUserChanged);
     if (changedUser == manager_->getHostSteamID() && !manager_->isHost())
     {
         std::cout << "Host left lobby, disconnecting client locally" << std::endl;

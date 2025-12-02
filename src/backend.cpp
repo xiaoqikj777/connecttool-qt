@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <algorithm>
 #include <mutex>
+#include <unordered_set>
 
 namespace
 {
@@ -428,30 +429,55 @@ void Backend::updateStatus()
 
 void Backend::updateMembersList()
 {
-    if (!steamReady_ || !steamManager_ || !roomManager_)
+    if (!steamReady_ || !steamManager_)
     {
         membersModel_.setMembers({});
         return;
     }
 
-    CSteamID currentLobby = roomManager_->getCurrentLobby();
-    if (!currentLobby.IsValid())
+    std::vector<CSteamID> lobbyMembers;
+    if (roomManager_)
     {
-        membersModel_.setMembers({});
-        return;
+        CSteamID currentLobby = roomManager_->getCurrentLobby();
+        if (currentLobby.IsValid())
+        {
+            lobbyMembers = roomManager_->getLobbyMembers();
+            if (!lobbyMembers.empty())
+            {
+                qDebug() << "[Members] lobby" << currentLobby.ConvertToUint64() << "has"
+                         << lobbyMembers.size() << "members";
+            }
+            else
+            {
+                qDebug() << "[Members] lobby" << currentLobby.ConvertToUint64() << "currently empty";
+            }
+        }
+        else
+        {
+            qDebug() << "[Members] no valid lobby, using active connections only";
+        }
+    }
+    else
+    {
+        qDebug() << "[Members] room manager missing, falling back to active connections";
     }
 
-    std::vector<CSteamID> lobbyMembers = roomManager_->getLobbyMembers();
     std::vector<MembersModel::Entry> entries;
     entries.reserve(lobbyMembers.size());
 
     CSteamID myId = SteamUser()->GetSteamID();
     CSteamID hostId = steamManager_->getHostSteamID();
 
+    std::unordered_set<uint64_t> seen;
+    seen.reserve(lobbyMembers.size());
+
     for (const auto &memberId : lobbyMembers)
     {
+        const uint64 memberValue = memberId.ConvertToUint64();
+        seen.insert(memberValue);
+
         MembersModel::Entry entry;
-        entry.steamId = QString::number(memberId.ConvertToUint64());
+        entry.steamId = QString::number(memberValue);
         entry.displayName = QString::fromUtf8(SteamFriends()->GetFriendPersonaName(memberId));
         entry.relay = QStringLiteral("-");
         entry.ping = -1;
@@ -487,8 +513,47 @@ void Backend::updateMembersList()
             }
         }
 
+        qDebug() << "[Members]" << entry.displayName << "(" << entry.steamId << ")" << "ping" << entry.ping
+                 << "relay" << entry.relay;
         entries.push_back(std::move(entry));
     }
 
+    if (isHost())
+    {
+        std::lock_guard<std::mutex> lock(steamManager_->getConnectionsMutex());
+        for (const auto &conn : steamManager_->getConnections())
+        {
+            SteamNetConnectionInfo_t info;
+            if (!steamManager_->getInterface()->GetConnectionInfo(conn, &info))
+            {
+                continue;
+            }
+            CSteamID remoteId = info.m_identityRemote.GetSteamID();
+            if (!remoteId.IsValid())
+            {
+                continue;
+            }
+            const uint64_t remoteValue = remoteId.ConvertToUint64();
+            if (!seen.insert(remoteValue).second)
+            {
+                continue;
+            }
+
+            MembersModel::Entry entry;
+            entry.steamId = QString::number(remoteValue);
+            entry.displayName = QString::fromUtf8(SteamFriends()->GetFriendPersonaName(remoteId));
+            entry.ping = steamManager_->getConnectionPing(conn);
+            entry.relay = QString::fromStdString(steamManager_->getConnectionRelayInfo(conn));
+
+            entries.push_back(std::move(entry));
+        }
+        qDebug() << "[Members] total entries after connections:" << entries.size();
+    }
+    else
+    {
+        qDebug() << "[Members] running as client, entries:" << entries.size();
+    }
+
     membersModel_.setMembers(std::move(entries));
+    qDebug() << "[Members] model updated";
 }

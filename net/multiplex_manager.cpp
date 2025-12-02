@@ -46,27 +46,39 @@ std::string MultiplexManager::addClient(std::shared_ptr<tcp::socket> socket)
     std::string id;
     {
         std::lock_guard<std::mutex> lock(mapMutex_);
-        id = generateId(6);
+        do
+        {
+            id = generateId(6);
+        } while (clientMap_.find(id) != clientMap_.end());
+
         clientMap_[id] = socket;
         readBuffers_[id].resize(1048576);
+        missingClients_.erase(id);
     }
     startAsyncRead(id);
     std::cout << "Added client with id " << id << std::endl;
     return id;
 }
 
-void MultiplexManager::removeClient(const std::string &id)
+bool MultiplexManager::removeClient(const std::string &id)
 {
+    bool removed = false;
     std::lock_guard<std::mutex> lock(mapMutex_);
     auto it = clientMap_.find(id);
     if (it != clientMap_.end())
     {
         it->second->close();
         clientMap_.erase(it);
+        removed = true;
     }
     readBuffers_.erase(id);
+    missingClients_.erase(id);
 
-    std::cout << "Removed client with id " << id << std::endl;
+    if (removed)
+    {
+        std::cout << "Removed client with id " << id << std::endl;
+    }
+    return removed;
 }
 
 std::shared_ptr<tcp::socket> MultiplexManager::getClient(const std::string &id)
@@ -152,34 +164,42 @@ void MultiplexManager::handleTunnelPacket(const char *data, size_t len)
 
                 std::string tempId = id;
                 {
-                    std::lock_guard<std::mutex> lock(mapMutex_);
-                    clientMap_[id] = newSocket;
-                    readBuffers_[id].resize(1048576);
-                    socket = newSocket;
-                }
+        std::lock_guard<std::mutex> lock(mapMutex_);
+        clientMap_[id] = newSocket;
+        readBuffers_[id].resize(1048576);
+        socket = newSocket;
+        }
                 std::cout << "Successfully created TCP client for id " << id << std::endl;
                 startAsyncRead(tempId);
             }
             catch (const std::exception &e)
             {
                 std::cerr << "Failed to create TCP client for id " << id << ": " << e.what() << std::endl;
+                sendTunnelPacket(id, nullptr, 0, 1);
                 return;
             }
         }
         if (socket)
         {
+            missingClients_.erase(id);
             boost::asio::async_write(*socket, boost::asio::buffer(packetData, dataLen), [](const boost::system::error_code &, std::size_t) {});
         }
         else
         {
-            std::cerr << "No client found for id " << id << std::endl;
+            if (missingClients_.insert(id).second)
+            {
+                std::cerr << "No client found for id " << id << std::endl;
+            }
+            sendTunnelPacket(id, nullptr, 0, 1);
         }
     }
     else if (type == 1)
     {
         // Disconnect packet
-        removeClient(id);
-        std::cout << "Client " << id << " disconnected" << std::endl;
+        if (removeClient(id))
+        {
+            std::cout << "Client " << id << " disconnected" << std::endl;
+        }
     }
     else
     {
@@ -190,11 +210,11 @@ void MultiplexManager::handleTunnelPacket(const char *data, size_t len)
 void MultiplexManager::startAsyncRead(const std::string &id)
 {
     auto socket = getClient(id);
-    if (!socket)
-    {
-        std::cout << "Error: Socket is null for id " << id << std::endl;
-        return;
-    }
+        if (!socket)
+        {
+            std::cout << "Error: Socket is null for id " << id << std::endl;
+            return;
+        }
     socket->async_read_some(boost::asio::buffer(readBuffers_[id]),
     [this, id](const boost::system::error_code &ec, std::size_t bytes_transferred)
     {

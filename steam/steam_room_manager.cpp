@@ -115,6 +115,23 @@ void SteamMatchmakingCallbacks::OnLobbyEntered(LobbyEnter_t *pCallback)
     }
 }
 
+void SteamMatchmakingCallbacks::OnLobbyChatUpdate(LobbyChatUpdate_t *pCallback)
+{
+    if (!roomManager_)
+    {
+        return;
+    }
+
+    CSteamID lobbyId = roomManager_->getCurrentLobby();
+    if (!lobbyId.IsValid() || lobbyId.ConvertToUint64() != pCallback->m_ulSteamIDLobby)
+    {
+        return;
+    }
+
+    std::cout << "Lobby chat updated for lobby " << pCallback->m_ulSteamIDLobby
+              << " change flags " << pCallback->m_rgfChatMemberStateChange << std::endl;
+}
+
 SteamRoomManager::SteamRoomManager(SteamNetworkingManager *networkingManager)
     : networkingManager_(networkingManager), currentLobby(k_steamIDNil),
       steamFriendsCallbacks(nullptr), steamMatchmakingCallbacks(nullptr)

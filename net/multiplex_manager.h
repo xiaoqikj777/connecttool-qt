@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -19,7 +20,7 @@ public:
     ~MultiplexManager();
 
     std::string addClient(std::shared_ptr<tcp::socket> socket);
-    void removeClient(const std::string& id);
+    bool removeClient(const std::string& id);
     std::shared_ptr<tcp::socket> getClient(const std::string& id);
 
     void sendTunnelPacket(const std::string& id, const char* data, size_t len, int type);
@@ -35,6 +36,7 @@ private:
     bool& isHost_;
     int& localPort_;
     std::unordered_map<std::string, std::vector<char>> readBuffers_;
+    std::unordered_set<std::string> missingClients_;
 
     void startAsyncRead(const std::string& id);
 };

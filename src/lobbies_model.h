@@ -42,6 +42,7 @@ public:
 
   void setLobbies(std::vector<Entry> list);
   bool setMemberCount(const QString &lobbyId, int count);
+  bool adjustMemberCount(const QString &lobbyId, int delta);
   bool removeByHostId(const QString &hostId);
   int count() const { return static_cast<int>(filtered_.size()); }
   QString filter() const { return filter_; }

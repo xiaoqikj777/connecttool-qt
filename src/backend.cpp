@@ -395,6 +395,8 @@ void Backend::joinLobby(const QString &lobbyId) {
 
 void Backend::disconnect() {
   const bool wasHost = isHost();
+  const QString prevLobbyId = lobbyId();
+  const int prevMemberCount = membersModel_.count();
   QString mySteamId;
   if (steamReady_ && SteamUser()) {
     mySteamId = QString::number(SteamUser()->GetSteamID().ConvertToUint64());
@@ -419,6 +421,8 @@ void Backend::disconnect() {
 
   if (wasHost && !mySteamId.isEmpty()) {
     lobbiesModel_.removeByHostId(mySteamId);
+  } else if (!prevLobbyId.isEmpty() && prevMemberCount > 0) {
+    lobbiesModel_.adjustMemberCount(prevLobbyId, -1);
   }
 }
 

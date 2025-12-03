@@ -83,6 +83,32 @@ bool LobbiesModel::setMemberCount(const QString &lobbyId, int count) {
   return any;
 }
 
+bool LobbiesModel::adjustMemberCount(const QString &lobbyId, int delta) {
+  if (delta == 0) {
+    return false;
+  }
+  bool any = false;
+  for (auto &entry : entries_) {
+    if (entry.lobbyId == lobbyId) {
+      const int next = std::max(0, entry.memberCount + delta);
+      if (next != entry.memberCount) {
+        entry.memberCount = next;
+        any = true;
+      }
+      break;
+    }
+  }
+  if (any) {
+    filtered_ = filterEntries(entries_);
+    if (!filtered_.empty()) {
+      emit dataChanged(index(0, 0),
+                       index(static_cast<int>(filtered_.size()) - 1, 0),
+                       {MemberCountRole});
+    }
+  }
+  return any;
+}
+
 void LobbiesModel::setFilter(const QString &text) {
   if (filter_ == text) {
     return;

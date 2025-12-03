@@ -121,6 +121,10 @@ Backend::Backend(QObject *parent)
   connect(&friendsRefreshResetTimer_, &QTimer::timeout, this,
           [this]() { setFriendsRefreshing(false); });
 
+  statusOverrideTimer_.setSingleShot(true);
+  connect(&statusOverrideTimer_, &QTimer::timeout, this,
+          [this]() { clearStatusOverride(); });
+
   connect(&cooldownTimer_, &QTimer::timeout, this, [this]() {
     bool anyChanged = false;
     int maxCooldown = 0;
@@ -235,7 +239,15 @@ void Backend::setJoinTarget(const QString &id) {
     return;
   }
   joinTarget_ = id;
+  if (joinTarget_ != lastAutoJoinTarget_) {
+    lastAutoJoinTarget_.clear();
+  }
   emit joinTargetChanged();
+}
+
+void Backend::setJoinTargetFromLobby(const QString &id) {
+  lastAutoJoinTarget_ = id;
+  setJoinTarget(id);
 }
 
 void Backend::setPublishLobby(bool publish) {
@@ -328,6 +340,10 @@ void Backend::joinHost() {
     emit errorMessage(tr("已经连接到房间，请先断开。"));
     return;
   }
+  clearStatusOverride();
+  const auto markNotFound = [this]() {
+    setStatusOverride(tr("房间不存在。"));
+  };
   const QString trimmedTarget = joinTarget_.trimmed();
   if (trimmedTarget.isEmpty()) {
     startHosting();
@@ -336,13 +352,21 @@ void Backend::joinHost() {
   bool ok = false;
   uint64 hostID = trimmedTarget.toULongLong(&ok);
   if (!ok) {
-    emit errorMessage(tr("请输入有效的房间/Steam ID。"));
+    markNotFound();
+    emit errorMessage(tr("房间不存在。"));
     return;
   }
 
   CSteamID targetSteamID(hostID);
   if (!targetSteamID.IsValid()) {
-    emit errorMessage(tr("无效的房间/Steam ID。"));
+    markNotFound();
+    emit errorMessage(tr("房间不存在。"));
+    return;
+  }
+
+  if (!targetSteamID.IsLobby() && !targetSteamID.BIndividualAccount()) {
+    markNotFound();
+    emit errorMessage(tr("房间不存在。"));
     return;
   }
 
@@ -369,8 +393,9 @@ void Backend::joinLobby(const QString &lobbyId) {
     return;
   }
 
+  const QString trimmedId = lobbyId.trimmed();
   bool ok = false;
-  const uint64 idValue = lobbyId.trimmed().toULongLong(&ok);
+  const uint64 idValue = trimmedId.toULongLong(&ok);
   if (!ok) {
     emit errorMessage(tr("无效的房间 ID。"));
     return;
@@ -386,11 +411,8 @@ void Backend::joinLobby(const QString &lobbyId) {
     disconnect();
   }
 
+  setJoinTargetFromLobby(trimmedId);
   if (roomManager_ && roomManager_->joinLobby(lobby)) {
-    if (joinTarget_ != lobbyId) {
-      joinTarget_ = lobbyId;
-      emit joinTargetChanged();
-    }
     updateStatus();
   } else {
     emit errorMessage(tr("无法加入房间。"));
@@ -422,6 +444,11 @@ void Backend::disconnect() {
   updateStatus();
   updateLobbyInfoSignals();
   setLobbyRefreshing(false);
+
+  if (!lastAutoJoinTarget_.isEmpty() && joinTarget_ == lastAutoJoinTarget_) {
+    setJoinTarget(QString());
+  }
+  lastAutoJoinTarget_.clear();
 
   if (wasHost && !mySteamId.isEmpty()) {
     lobbiesModel_.removeByHostId(mySteamId);
@@ -615,6 +642,9 @@ void Backend::tick() {
 }
 
 void Backend::updateStatus() {
+  if (!statusOverride_.isEmpty()) {
+    return;
+  }
   QString next;
   if (!steamReady_) {
     next = tr("Steam 未就绪。");
@@ -642,6 +672,25 @@ void Backend::updateStatus() {
     status_ = next;
     emit stateChanged();
   }
+}
+
+void Backend::setStatusOverride(const QString &text, int durationMs) {
+  statusOverride_ = text;
+  status_ = text;
+  emit stateChanged();
+  if (durationMs > 0) {
+    statusOverrideTimer_.start(durationMs);
+  } else {
+    statusOverrideTimer_.stop();
+  }
+}
+
+void Backend::clearStatusOverride() {
+  if (statusOverride_.isEmpty()) {
+    return;
+  }
+  statusOverride_.clear();
+  updateStatus();
 }
 
 void Backend::updateLobbiesList(

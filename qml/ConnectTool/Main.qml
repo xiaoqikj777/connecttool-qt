@@ -103,6 +103,8 @@ ApplicationWindow {
                     implicitHeight: 56
                     color: win.currentPage === key ? "#162033" : "transparent"
                     border.color: win.currentPage === key ? "#23c9a9" : "#1f2b3c"
+                    Behavior on color { ColorAnimation { duration: 250; easing.type: Easing.InOutQuad } }
+                    Behavior on border.color { ColorAnimation { duration: 250; easing.type: Easing.InOutQuad } }
 
                     RowLayout {
                         anchors.fill: parent
@@ -114,7 +116,8 @@ ApplicationWindow {
                             height: 24
                             radius: 3
                             color: "#23c9a9"
-                            visible: win.currentPage === key
+                            opacity: win.currentPage === key ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
                             Layout.alignment: Qt.AlignVCenter
                         }
 

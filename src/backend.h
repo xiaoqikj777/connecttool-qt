@@ -134,6 +134,9 @@ private:
   void updateLobbyInfoSignals();
   void setFriendsRefreshing(bool refreshing);
   void setLobbyRefreshing(bool refreshing);
+  void setStatusOverride(const QString &text, int durationMs = 3000);
+  void clearStatusOverride();
+  void setJoinTargetFromLobby(const QString &id);
 
   std::unique_ptr<SteamNetworkingManager> steamManager_;
   std::unique_ptr<SteamRoomManager> roomManager_;
@@ -147,10 +150,13 @@ private:
   QTimer slowTimer_;
   QTimer cooldownTimer_;
   QTimer friendsRefreshResetTimer_;
+  QTimer statusOverrideTimer_;
 
   bool steamReady_;
   QString status_;
+  QString statusOverride_;
   QString joinTarget_;
+  QString lastAutoJoinTarget_;
   QString hostSteamId_;
   int localPort_;
   int localBindPort_;

@@ -47,12 +47,6 @@ bool SteamNetworkingManager::initialize() {
       k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Int32,
       &logLevel);
 
-  // Increase default reliable send buffer to better handle large bursts
-  int32 sendBufferSize = 2 * 1024 * 1024;
-  SteamNetworkingUtils()->SetConfigValue(
-      k_ESteamNetworkingConfig_SendBufferSize, k_ESteamNetworkingConfig_Global,
-      0, k_ESteamNetworkingConfig_Int32, &sendBufferSize);
-
   // Receive buffers tuned for moderate bandwidth to avoid runaway queues
   int32 recvBufferSize = 2 * 1024 * 1024; // 2 MB
   SteamNetworkingUtils()->SetConfigValue(
@@ -64,8 +58,8 @@ bool SteamNetworkingManager::initialize() {
       k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Int32,
       &recvBufferMsgs);
 
-  // Cap send rate to a conservative value to keep reliable window stable
-  int32 sendRate = 2 * 1024 * 1024; // 3 MB/s
+  // Keep a high ceiling on bandwidth so tunneling is not throttled
+  int32 sendRate = 50 * 1024 * 1024; // 50 MB/s
   SteamNetworkingUtils()->SetConfigValue(
       k_ESteamNetworkingConfig_SendRateMin, k_ESteamNetworkingConfig_Global, 0,
       k_ESteamNetworkingConfig_Int32, &sendRate);
@@ -73,15 +67,21 @@ bool SteamNetworkingManager::initialize() {
       k_ESteamNetworkingConfig_SendRateMax, k_ESteamNetworkingConfig_Global, 0,
       k_ESteamNetworkingConfig_Int32, &sendRate);
 
+  // Allow larger reliable send buffers for higher throughput bursts
+  int32 sendBufferSize = 4 * 1024 * 1024; // 4 MB
+  SteamNetworkingUtils()->SetConfigValue(
+      k_ESteamNetworkingConfig_SendBufferSize, k_ESteamNetworkingConfig_Global,
+      0, k_ESteamNetworkingConfig_Int32, &sendBufferSize);
+
   // Disable Nagle to reduce latency for tunneled traffic
   int32 nagleTime = 0;
   SteamNetworkingUtils()->SetConfigValue(
       k_ESteamNetworkingConfig_NagleTime, k_ESteamNetworkingConfig_Global, 0,
       k_ESteamNetworkingConfig_Int32, &nagleTime);
 
-  std::cout << "[SteamNet] SendBuffer=" << (sendBufferSize / 1024 / 1024)
-            << "MB, SendRate=" << (sendRate / 1024 / 1024)
-            << "MB/s, RecvBuffer=" << (recvBufferSize / 1024 / 1024)
+  std::cout << "[SteamNet] Bandwidth: SendRate=" << (sendRate / 1024 / 1024)
+            << "MB/s, SendBuffer=" << (sendBufferSize / 1024 / 1024)
+            << "MB, RecvBuffer=" << (recvBufferSize / 1024 / 1024)
             << "MB, RecvMsgs=" << recvBufferMsgs << ", Nagle=" << nagleTime
             << std::endl;
 

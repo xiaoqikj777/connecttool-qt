@@ -428,8 +428,10 @@ void Backend::disconnect() {
 
 void Backend::refreshFriends() {
   if (!steamReady_ || !steamManager_) {
+    setFriendsRefreshing(false);
     return;
   }
+  setFriendsRefreshing(true);
   QVariantList updated;
   std::vector<FriendsModel::Entry> modelData;
   int idx = 0;
@@ -462,6 +464,7 @@ void Backend::refreshFriends() {
     friends_ = updated;
     emit friendsChanged();
   }
+  QTimer::singleShot(0, this, [this]() { setFriendsRefreshing(false); });
 }
 
 void Backend::refreshLobbies() {
@@ -565,6 +568,14 @@ void Backend::updateFriendCooldown(const QString &steamId, int seconds) {
   if (listChanged) {
     emit friendsChanged();
   }
+}
+
+void Backend::setFriendsRefreshing(bool refreshing) {
+  if (friendsRefreshing_ == refreshing) {
+    return;
+  }
+  friendsRefreshing_ = refreshing;
+  emit friendsRefreshingChanged();
 }
 
 void Backend::setLobbyRefreshing(bool refreshing) {

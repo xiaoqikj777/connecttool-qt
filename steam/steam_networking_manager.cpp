@@ -48,13 +48,13 @@ bool SteamNetworkingManager::initialize() {
       &logLevel);
 
   // Increase default reliable send buffer to better handle large bursts
-  int32 sendBufferSize = 2 * 1024 * 1024;
+  int32 sendBufferSize = 3 * 1024 * 1024;
   SteamNetworkingUtils()->SetConfigValue(
       k_ESteamNetworkingConfig_SendBufferSize, k_ESteamNetworkingConfig_Global,
       0, k_ESteamNetworkingConfig_Int32, &sendBufferSize);
 
   // Receive buffers tuned for moderate bandwidth to avoid runaway queues
-  int32 recvBufferSize = 2 * 1024 * 1024; // 2 MB
+  int32 recvBufferSize = 3 * 1024 * 1024; // 2 MB
   SteamNetworkingUtils()->SetConfigValue(
       k_ESteamNetworkingConfig_RecvBufferSize, k_ESteamNetworkingConfig_Global,
       0, k_ESteamNetworkingConfig_Int32, &recvBufferSize);
@@ -65,7 +65,7 @@ bool SteamNetworkingManager::initialize() {
       &recvBufferMsgs);
 
   // Cap send rate to a conservative value to keep reliable window stable
-  int32 sendRate = 2 * 1024 * 1024; // 3 MB/s
+  int32 sendRate = 1.5 * 1024 * 1024; // ~1000 KB/s
   SteamNetworkingUtils()->SetConfigValue(
       k_ESteamNetworkingConfig_SendRateMin, k_ESteamNetworkingConfig_Global, 0,
       k_ESteamNetworkingConfig_Int32, &sendRate);

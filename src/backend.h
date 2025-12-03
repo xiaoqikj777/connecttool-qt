@@ -40,6 +40,8 @@ class Backend : public QObject {
   Q_PROPERTY(FriendsModel *friendsModel READ friendsModel NOTIFY friendsChanged)
   Q_PROPERTY(QString friendFilter READ friendFilter WRITE setFriendFilter NOTIFY
                  friendFilterChanged)
+  Q_PROPERTY(bool friendsRefreshing READ friendsRefreshing NOTIFY
+                 friendsRefreshingChanged)
   Q_PROPERTY(MembersModel *membersModel READ membersModel CONSTANT)
   Q_PROPERTY(LobbiesModel *lobbiesModel READ lobbiesModel CONSTANT)
   Q_PROPERTY(
@@ -74,6 +76,7 @@ public:
   LobbiesModel *lobbiesModel() { return &lobbiesModel_; }
   MembersModel *membersModel() { return &membersModel_; }
   QString friendFilter() const { return friendFilter_; }
+  bool friendsRefreshing() const { return friendsRefreshing_; }
   int inviteCooldown() const { return inviteCooldownSeconds_; }
   QString roomName() const { return roomName_; }
   bool lobbyRefreshing() const { return lobbyRefreshing_; }
@@ -112,6 +115,7 @@ signals:
   void hostSteamIdChanged();
   void roomNameChanged();
   void publishLobbyChanged();
+  void friendsRefreshingChanged();
   void lobbyRefreshingChanged();
   void lobbyFilterChanged();
   void lobbySortModeChanged();
@@ -128,6 +132,7 @@ private:
   void refreshHostId();
   void updateFriendCooldown(const QString &steamId, int seconds);
   void updateLobbyInfoSignals();
+  void setFriendsRefreshing(bool refreshing);
   void setLobbyRefreshing(bool refreshing);
 
   std::unique_ptr<SteamNetworkingManager> steamManager_;
@@ -164,6 +169,7 @@ private:
   int lobbySortMode_ = 0;
   QString lastLobbyId_;
   QString lastLobbyName_;
+  bool friendsRefreshing_ = false;
   bool lobbyRefreshing_ = false;
   std::chrono::steady_clock::time_point lastPingBroadcast_;
 };

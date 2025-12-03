@@ -589,6 +589,17 @@ ApplicationWindow {
                                     color: "#e6efff"
                                 }
                                 Rectangle { Layout.fillWidth: true; color: "transparent" }
+                                Item {
+                                    width: 28
+                                    height: 28
+                                    Layout.alignment: Qt.AlignVCenter
+
+                                    BusyIndicator {
+                                        anchors.fill: parent
+                                        running: backend.friendsRefreshing
+                                        visible: running
+                                    }
+                                }
                                 Label {
                                     text: qsTr("好友数: %1").arg(backend.friendsModel ? backend.friendsModel.count : 0)
                                     color: "#7f8cab"
@@ -783,10 +794,16 @@ ApplicationWindow {
                         color: "#e6efff"
                     }
                     Rectangle { Layout.fillWidth: true; color: "transparent" }
-                    BusyIndicator {
-                        running: backend.lobbyRefreshing
-                        visible: running
+                    Item {
+                        width: 28
+                        height: 28
                         Layout.alignment: Qt.AlignVCenter
+
+                        BusyIndicator {
+                            anchors.fill: parent
+                            running: backend.lobbyRefreshing
+                            visible: running
+                        }
                     }
                     Label {
                         text: qsTr("房间数: %1").arg(backend.lobbiesModel ? backend.lobbiesModel.count : 0)

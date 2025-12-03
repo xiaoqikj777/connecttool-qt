@@ -5,15 +5,17 @@
 #include "../steam/steam_room_manager.h"
 #include "../steam/steam_utils.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QMetaObject>
 #include <QQmlEngine>
-#include <QClipboard>
 #include <QVariantMap>
 #include <QtDebug>
 #include <algorithm>
+#include <chrono>
 #include <mutex>
+#include <sstream>
 #include <unordered_set>
 #include <utility>
 
@@ -97,6 +99,8 @@ Backend::Backend(QObject *parent)
             },
             Qt::QueuedConnection);
       });
+  lobbiesModel_.setFilter(lobbyFilter_);
+  lobbiesModel_.setSortMode(lobbySortMode_);
 
   workGuard_ = std::make_unique<
       boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
@@ -360,10 +364,6 @@ void Backend::joinLobby(const QString &lobbyId) {
   if (!ensureSteamReady(tr("加入大厅"))) {
     return;
   }
-  if (isHost() || isConnected()) {
-    emit errorMessage(tr("当前已在房间中，请先断开。"));
-    return;
-  }
 
   bool ok = false;
   const uint64 idValue = lobbyId.trimmed().toULongLong(&ok);
@@ -378,6 +378,10 @@ void Backend::joinLobby(const QString &lobbyId) {
     return;
   }
 
+  if (isHost() || isConnected()) {
+    disconnect();
+  }
+
   if (roomManager_ && roomManager_->joinLobby(lobby)) {
     if (joinTarget_ != lobbyId) {
       joinTarget_ = lobbyId;
@@ -390,6 +394,12 @@ void Backend::joinLobby(const QString &lobbyId) {
 }
 
 void Backend::disconnect() {
+  const bool wasHost = isHost();
+  QString mySteamId;
+  if (steamReady_ && SteamUser()) {
+    mySteamId = QString::number(SteamUser()->GetSteamID().ConvertToUint64());
+  }
+
   if (roomManager_) {
     roomManager_->leaveLobby();
   }
@@ -406,6 +416,10 @@ void Backend::disconnect() {
   updateStatus();
   updateLobbyInfoSignals();
   setLobbyRefreshing(false);
+
+  if (wasHost && !mySteamId.isEmpty()) {
+    lobbiesModel_.removeByHostId(mySteamId);
+  }
 }
 
 void Backend::refreshFriends() {
@@ -420,7 +434,8 @@ void Backend::refreshFriends() {
     const QString displayName = QString::fromStdString(friendInfo.name);
     const QString avatar = QString::fromStdString(friendInfo.avatarDataUrl);
     const PersonaDisplay persona = personaStateDisplay(friendInfo.personaState);
-    const auto cooldownIt = inviteCooldowns_.find(friendInfo.id.ConvertToUint64());
+    const auto cooldownIt =
+        inviteCooldowns_.find(friendInfo.id.ConvertToUint64());
     const int friendCooldown =
         cooldownIt != inviteCooldowns_.end() ? cooldownIt->second : 0;
 
@@ -466,12 +481,27 @@ void Backend::setFriendFilter(const QString &text) {
   emit friendFilterChanged();
 }
 
+void Backend::setLobbyFilter(const QString &text) {
+  if (lobbyFilter_ == text) {
+    return;
+  }
+  lobbyFilter_ = text;
+  lobbiesModel_.setFilter(lobbyFilter_);
+  emit lobbyFilterChanged();
+}
+
+void Backend::setLobbySortMode(int mode) {
+  if (lobbySortMode_ == mode) {
+    return;
+  }
+  lobbySortMode_ = mode;
+  lobbiesModel_.setSortMode(lobbySortMode_);
+  emit lobbySortModeChanged();
+}
+
 void Backend::setRoomName(const QString &name) {
   QString next = name;
   next = next.left(64).trimmed();
-  if (next.isEmpty()) {
-    next = defaultRoomName();
-  }
   if (roomName_ == next) {
     return;
   }
@@ -580,9 +610,9 @@ void Backend::updateStatus() {
   }
 
   const int clientCount = tcpClients();
-  if (server_) {
-    next += tr(" · 本地 TCP 客户端 %1").arg(clientCount);
-  }
+  // if (server_) {
+  //   next += tr(" · 本地 TCP 客户端 %1").arg(clientCount);
+  // }
 
   if (clientCount != lastTcpClients_) {
     lastTcpClients_ = clientCount;
@@ -600,6 +630,16 @@ void Backend::updateLobbiesList(
   std::vector<LobbiesModel::Entry> entries;
   entries.reserve(lobbies.size());
 
+  const QString currentLobbyId = lobbyId();
+  const bool iAmHost = isHost();
+  const QString myIdString =
+      (steamReady_ && SteamUser())
+          ? QString::number(SteamUser()->GetSteamID().ConvertToUint64())
+          : QString();
+  const int currentMemberCount =
+      roomManager_ ? static_cast<int>(roomManager_->getLobbyMembers().size())
+                   : 0;
+
   for (const auto &lobby : lobbies) {
     LobbiesModel::Entry entry;
     entry.lobbyId = QString::number(lobby.id.ConvertToUint64());
@@ -611,8 +651,7 @@ void Backend::updateLobbiesList(
       entry.hostId = QString::number(lobby.ownerId.ConvertToUint64());
     }
     entry.hostName = QString::fromStdString(lobby.ownerName);
-    if (entry.hostName.isEmpty() && lobby.ownerId.IsValid() &&
-        SteamFriends()) {
+    if (entry.hostName.isEmpty() && lobby.ownerId.IsValid() && SteamFriends()) {
       const char *ownerName =
           SteamFriends()->GetFriendPersonaName(lobby.ownerId);
       if (ownerName) {
@@ -621,6 +660,15 @@ void Backend::updateLobbiesList(
     }
     entry.memberCount = lobby.memberCount;
     entry.ping = lobby.pingMs >= 0 ? lobby.pingMs : -1;
+
+    if (!currentLobbyId.isEmpty() && entry.lobbyId == currentLobbyId &&
+        currentMemberCount > 0) {
+      entry.memberCount = std::max(entry.memberCount, currentMemberCount);
+    }
+
+    if (!iAmHost && !myIdString.isEmpty() && entry.hostId == myIdString) {
+      continue; // when acting as client, hide previously hosted lobby
+    }
 
     entries.push_back(std::move(entry));
   }
@@ -632,6 +680,7 @@ void Backend::updateMembersList() {
   if (!steamReady_ || !steamManager_) {
     membersModel_.setMembers({});
     memberAvatars_.clear();
+    lobbiesModel_.setMemberCount({}, 0);
     return;
   }
 
@@ -645,6 +694,7 @@ void Backend::updateMembersList() {
 
   std::vector<MembersModel::Entry> entries;
   entries.reserve(lobbyMembers.size());
+  std::vector<std::tuple<uint64_t, int, std::string>> pingBroadcast;
 
   CSteamID myId = SteamUser()->GetSteamID();
   CSteamID hostId = steamManager_->getHostSteamID();
@@ -693,6 +743,14 @@ void Backend::updateMembersList() {
       if (memberIsHost) {
         entry.relay = tr("房主");
         entry.ping = steamManager_->getHostPing();
+      } else if (!isHost()) {
+        int rp = -1;
+        std::string relayInfo;
+        if (roomManager_ &&
+            roomManager_->getRemotePing(memberId, rp, relayInfo) && rp >= 0) {
+          entry.ping = rp;
+          entry.relay = QString::fromStdString(relayInfo);
+        }
       } else if (isHost()) {
         std::lock_guard<std::mutex> lock(steamManager_->getConnectionsMutex());
         for (const auto &conn : steamManager_->getConnections()) {
@@ -702,6 +760,10 @@ void Backend::updateMembersList() {
             entry.ping = steamManager_->getConnectionPing(conn);
             entry.relay = QString::fromStdString(
                 steamManager_->getConnectionRelayInfo(conn));
+            if (entry.ping >= 0) {
+              pingBroadcast.emplace_back(memberValue, entry.ping,
+                                         entry.relay.toStdString());
+            }
             break;
           }
         }
@@ -736,8 +798,20 @@ void Backend::updateMembersList() {
       const std::string relayInfo = steamManager_->getConnectionRelayInfo(conn);
       entry.relay =
           relayInfo.empty() ? tr("直连") : QString::fromStdString(relayInfo);
+      if (entry.ping >= 0) {
+        pingBroadcast.emplace_back(remoteValue, entry.ping, relayInfo);
+      }
 
       entries.push_back(std::move(entry));
+    }
+  }
+
+  if (isHost() && roomManager_) {
+    const auto now = std::chrono::steady_clock::now();
+    if (lastPingBroadcast_.time_since_epoch().count() == 0 ||
+        now - lastPingBroadcast_ > std::chrono::seconds(2)) {
+      roomManager_->broadcastPings(pingBroadcast);
+      lastPingBroadcast_ = now;
     }
   }
 
@@ -752,6 +826,10 @@ void Backend::updateMembersList() {
   }
 
   membersModel_.setMembers(std::move(entries));
+  const QString currentLobbyId = lobbyId();
+  if (!currentLobbyId.isEmpty() && newCount > 0) {
+    lobbiesModel_.setMemberCount(currentLobbyId, newCount);
+  }
 }
 
 void Backend::refreshHostId() {

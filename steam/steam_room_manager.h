@@ -5,6 +5,9 @@
 #include <steam_api.h>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <chrono>
+#include <tuple>
 
 class SteamNetworkingManager; // Forward declaration
 class SteamRoomManager;       // Forward declaration for callbacks
@@ -42,6 +45,7 @@ private:
   STEAM_CALLBACK(SteamMatchmakingCallbacks, OnLobbyEntered, LobbyEnter_t);
   STEAM_CALLBACK(SteamMatchmakingCallbacks, OnLobbyChatUpdate,
                  LobbyChatUpdate_t);
+  STEAM_CALLBACK(SteamMatchmakingCallbacks, OnLobbyChatMsg, LobbyChatMsg_t);
 };
 
 class SteamRoomManager {
@@ -69,6 +73,9 @@ public:
   std::string getLobbyName() const;
   void setLobbyListCallback(
       std::function<void(const std::vector<LobbyInfo> &)> callback);
+  void broadcastPings(
+      const std::vector<std::tuple<uint64_t, int, std::string>> &pings);
+  bool getRemotePing(const CSteamID &id, int &ping, std::string &relay) const;
 
   CSteamID getCurrentLobby() const { return currentLobby; }
   const std::vector<CSteamID> &getLobbies() const { return lobbies; }
@@ -85,6 +92,7 @@ private:
   friend class Backend;
   void refreshLobbyMetadata();
   void notifyLobbyListUpdated();
+  void handlePingMessage(const std::string &payload);
 
   SteamNetworkingManager *networkingManager_;
   CSteamID currentLobby;
@@ -95,4 +103,10 @@ private:
   std::function<void(const std::vector<LobbyInfo> &)> lobbyListCallback_;
   std::string lobbyName_;
   bool publishLobby_ = true;
+  struct PingInfo {
+    int ping = -1;
+    std::string relay;
+    std::chrono::steady_clock::time_point updatedAt;
+  };
+  std::unordered_map<uint64_t, PingInfo> remotePings_;
 };

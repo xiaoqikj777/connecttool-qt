@@ -161,10 +161,27 @@ ApplicationWindow {
 
             ToolButton {
                 id: menuButton
-                text: "\u2261"
-                font.pixelSize: 22
-                implicitWidth: 46
-                implicitHeight: 42
+                implicitWidth: 44
+                implicitHeight: 44
+                contentItem: Image {
+                    anchors.centerIn: parent
+                    source: Qt.resolvedUrl("Menu.svg")
+                    width: 22
+                    height: 22
+                    sourceSize.width: 48
+                    sourceSize.height: 48
+                    asynchronous: false
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                    opacity: menuButton.enabled ? 1.0 : 0.4
+                }
+                background: Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: menuButton.hovered ? "#1c293c" : "#161f2e"
+                    border.color: "#243149"
+                }
                 Layout.alignment: Qt.AlignVCenter
                 Accessible.name: qsTr("打开导航")
                 onClicked: navDrawer.open()
@@ -265,6 +282,7 @@ ApplicationWindow {
                                 id: publishSwitch
                                 text: qsTr("公开到大厅")
                                 checked: backend.publishLobby
+                                enabled: (!backend.isConnected) || backend.isHost
                                 Layout.alignment: Qt.AlignVCenter
                                 onToggled: backend.publishLobby = checked
                             }
@@ -278,7 +296,8 @@ ApplicationWindow {
                             onTextChanged: backend.roomName = text
                             color: "#dce7ff"
                             selectByMouse: true
-                            visible: publishSwitch.checked
+                            enabled: !backend.isConnected
+                            visible: publishSwitch.checked && !backend.isConnected
                         }
 
                         RowLayout {
@@ -414,111 +433,122 @@ ApplicationWindow {
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                Layout.preferredHeight: 280
+                                Layout.preferredHeight: 320
 
-                                Column {
+                                Flickable {
+                                    id: memberFlick
                                     anchors.fill: parent
-                                    anchors.margins: 12
-                                    spacing: 12
+                                    anchors.margins: 6
+                                    clip: true
+                                    interactive: contentHeight > height
+                                    contentHeight: membersColumn.implicitHeight
+                                    ScrollBar.vertical: ScrollBar {}
 
-                                    Repeater {
-                                        id: memberRepeater
-                                        model: backend.membersModel
-                                        delegate: Rectangle {
-                                            required property string displayName
-                                            required property string steamId
-                                            required property string avatar
-                                            required property var ping
-                                            required property string relay
-                                            radius: 10
-                                            color: "#162033"
-                                            border.color: "#1f2f45"
-                                            width: parent ? parent.width : 0
-                                            height: implicitHeight
-                                            implicitHeight: rowLayout.implicitHeight + 24
-                                            Component.onCompleted: console.log("[QML] member delegate", displayName, steamId, ping, relay)
+                                    Column {
+                                        id: membersColumn
+                                        width: parent.width
+                                        spacing: 12
+                                        Repeater {
+                                            id: memberRepeater
+                                            model: backend.membersModel
+                                            delegate: Rectangle {
+                                                required property string displayName
+                                                required property string steamId
+                                                required property string avatar
+                                                required property var ping
+                                                required property string relay
+                                                radius: 10
+                                                color: "#162033"
+                                                border.color: "#1f2f45"
+                                                width: parent ? parent.width : 0
+                                                height: implicitHeight
+                                                implicitHeight: rowLayout.implicitHeight + 24
+                                                Component.onCompleted: console.log("[QML] member delegate", displayName, steamId, ping, relay)
 
-                                            RowLayout {
-                                                id: rowLayout
-                                                anchors.fill: parent
-                                                anchors.margins: 12
-                                                spacing: 12
+                                                RowLayout {
+                                                    id: rowLayout
+                                                    anchors.fill: parent
+                                                    anchors.margins: 12
+                                                    spacing: 12
 
-                                                Item {
-                                                    width: 48
-                                                    height: 48
-                                                    Layout.alignment: Qt.AlignVCenter
-                                                    Layout.preferredWidth: 48
-                                                    Layout.preferredHeight: 48
-                                                    Rectangle {
-                                                        id: memberAvatarFrame
-                                                        anchors.fill: parent
-                                                        radius: width / 2
-                                                        color: avatar.length > 0 ? "transparent" : "#1a2436"
-                                                        border.color: avatar.length > 0 ? "transparent" : "#1f2f45"
-                                                        layer.enabled: avatar.length > 0
-                                                        layer.effect: OpacityMask {
-                                                            source: memberAvatarFrame
-                                                            maskSource: Rectangle {
-                                                                width: memberAvatarFrame.width
-                                                                height: memberAvatarFrame.height
-                                                                radius: memberAvatarFrame.width / 2
-                                                                color: "white"
+                                                    Item {
+                                                        width: 48
+                                                        height: 48
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                        Layout.preferredWidth: 48
+                                                        Layout.preferredHeight: 48
+                                                        Rectangle {
+                                                            id: memberAvatarFrame
+                                                            anchors.fill: parent
+                                                            radius: width / 2
+                                                            color: avatar.length > 0 ? "transparent" : "#1a2436"
+                                                            border.color: avatar.length > 0 ? "transparent" : "#1f2f45"
+                                                            layer.enabled: avatar.length > 0
+                                                            layer.effect: OpacityMask {
+                                                                source: memberAvatarFrame
+                                                                maskSource: Rectangle {
+                                                                    width: memberAvatarFrame.width
+                                                                    height: memberAvatarFrame.height
+                                                                    radius: memberAvatarFrame.width / 2
+                                                                    color: "white"
+                                                                }
+                                                            }
+                                                            Image {
+                                                                anchors.fill: parent
+                                                                source: avatar
+                                                                visible: avatar.length > 0
+                                                                fillMode: Image.PreserveAspectCrop
+                                                                smooth: true
+                                                            }
+                                                            Label {
+                                                                anchors.centerIn: parent
+                                                                visible: avatar.length === 0
+                                                                text: displayName.length > 0 ? displayName[0] : "?"
+                                                                color: "#6f7e9c"
+                                                                font.pixelSize: 18
                                                             }
                                                         }
-                                                        Image {
-                                                            anchors.fill: parent
-                                                            source: avatar
-                                                            visible: avatar.length > 0
-                                                            fillMode: Image.PreserveAspectCrop
-                                                            smooth: true
+                                                    }
+
+                                                    ColumnLayout {
+                                                        spacing: 2
+                                                        Layout.fillWidth: true
+                                                        Label {
+                                                            text: displayName
+                                                            font.pixelSize: 16
+                                                            color: "#e1edff"
+                                                            elide: Text.ElideRight
+                                                            horizontalAlignment: Text.AlignLeft
                                                         }
                                                         Label {
-                                                            anchors.centerIn: parent
-                                                            visible: avatar.length === 0
-                                                            text: displayName.length > 0 ? displayName[0] : "?"
-                                                            color: "#6f7e9c"
-                                                            font.pixelSize: 18
+                                                            text: qsTr("SteamID: %1").arg(steamId)
+                                                            font.pixelSize: 12
+                                                            color: "#7f8cab"
+                                                            elide: Text.ElideRight
+                                                            horizontalAlignment: Text.AlignLeft
                                                         }
                                                     }
-                                                }
 
-                                                ColumnLayout {
-                                                    spacing: 2
-                                                    Layout.fillWidth: true
-                                                    Label {
-                                                        text: displayName
-                                                        font.pixelSize: 16
-                                                        color: "#e1edff"
-                                                        elide: Text.ElideRight
-                                                    }
-                                                    Label {
-                                                        text: qsTr("SteamID: %1").arg(steamId)
-                                                        font.pixelSize: 12
-                                                        color: "#7f8cab"
-                                                        elide: Text.ElideRight
-                                                    }
-                                                }
-
-                                                ColumnLayout {
-                                                    spacing: 2
-                                                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                                                    Label {
-                                                        text: (ping === undefined || ping === null)
-                                                              ? qsTr("-")
-                                                              : qsTr("%1 ms").arg(ping)
-                                                        color: "#7fded1"
-                                                        font.pixelSize: 14
-                                                        horizontalAlignment: Text.AlignRight
-                                                        Layout.alignment: Qt.AlignRight
-                                                    }
-                                                    Label {
-                                                        text: relay.length > 0 ? relay : "-"
-                                                        color: "#8ea4c8"
-                                                        font.pixelSize: 12
-                                                        elide: Text.ElideRight
-                                                        horizontalAlignment: Text.AlignRight
-                                                        Layout.alignment: Qt.AlignRight
+                                                    ColumnLayout {
+                                                        spacing: 2
+                                                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                                        Label {
+                                                            text: (ping === undefined || ping === null)
+                                                                  ? qsTr("-")
+                                                                  : qsTr("%1 ms").arg(ping)
+                                                            color: "#7fded1"
+                                                            font.pixelSize: 14
+                                                            horizontalAlignment: Text.AlignRight
+                                                            Layout.alignment: Qt.AlignRight
+                                                        }
+                                                        Label {
+                                                            text: relay.length > 0 ? relay : "-"
+                                                            color: "#8ea4c8"
+                                                            font.pixelSize: 12
+                                                            elide: Text.ElideRight
+                                                            horizontalAlignment: Text.AlignRight
+                                                            Layout.alignment: Qt.AlignRight
+                                                        }
                                                     }
                                                 }
                                             }
@@ -764,10 +794,36 @@ ApplicationWindow {
                         Layout.alignment: Qt.AlignVCenter
                     }
                     Button {
-                        text: backend.lobbyRefreshing ? qsTr("刷新中…") : qsTr("刷新")
+                        text: qsTr("刷新")
                         enabled: backend.steamReady && !backend.lobbyRefreshing
                         Layout.alignment: Qt.AlignVCenter
                         onClicked: backend.refreshLobbies()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    TextField {
+                        id: lobbySearchField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("搜索房间名 / 房主 / 房间 ID …")
+                        text: backend.lobbyFilter
+                        onTextChanged: backend.lobbyFilter = text
+                    }
+
+                    ComboBox {
+                        id: lobbySortBox
+                        Layout.preferredWidth: 160
+                        model: [
+                            { text: qsTr("按人数"), value: 0 },
+                            { text: qsTr("按房间名"), value: 1 }
+                        ]
+                        textRole: "text"
+                        valueRole: "value"
+                        currentIndex: Math.min(model.length - 1, Math.max(0, backend.lobbySortMode))
+                        onActivated: backend.lobbySortMode = model[currentIndex].value
                     }
                 }
 
@@ -792,126 +848,134 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
 
-                            ListView {
-                                id: lobbyList
+                            Flickable {
+                                id: lobbyFlick
                                 anchors.fill: parent
                                 anchors.margins: 4
                                 clip: true
-                                spacing: 10
-                                model: backend.lobbiesModel
+                                contentHeight: lobbyColumn.implicitHeight
+                                interactive: contentHeight > height
                                 ScrollBar.vertical: ScrollBar {}
 
-                                delegate: Rectangle {
-                                    width: lobbyList.width
-                                    required property string lobbyId
-                                    required property string name
-                                    required property string hostName
-                                    required property string hostId
-                                    required property int members
-                                    required property var ping
-                                    property bool isCurrentLobby: backend.lobbyId && backend.lobbyId === lobbyId
-                                    property bool canJoin: backend.steamReady && !backend.isHost && !backend.isConnected && !isCurrentLobby
-                                    radius: 10
-                                    color: "#162033"
-                                    border.color: "#1f2f45"
-                                    height: implicitHeight
-                                    implicitHeight: row.implicitHeight + 16
+                                Column {
+                                    id: lobbyColumn
+                                    width: parent.width
+                                    spacing: 10
 
-                                    RowLayout {
-                                        id: row
-                                        anchors.fill: parent
-                                        anchors.margins: 10
-                                        spacing: 10
-
-                                        ColumnLayout {
-                                            spacing: 4
-                                            Layout.fillWidth: true
+                                    Repeater {
+                                        id: lobbyRepeater
+                                        model: backend.lobbiesModel
+                                        delegate: Rectangle {
+                                            required property string lobbyId
+                                            required property string name
+                                            required property string hostName
+                                            required property string hostId
+                                            required property int members
+                                            required property var ping
+                                            property bool isCurrentLobby: backend.lobbyId && backend.lobbyId === lobbyId
+                                            property bool canJoin: backend.steamReady && !isCurrentLobby
+                                            radius: 10
+                                            color: "#162033"
+                                            border.color: "#1f2f45"
+                                            width: parent ? parent.width : 0
+                                            height: implicitHeight
+                                            implicitHeight: row.implicitHeight + 16
 
                                             RowLayout {
-                                                spacing: 8
-                                                Layout.fillWidth: true
-                                                Label {
-                                                    text: name.length > 0 ? name : qsTr("未命名房间")
-                                                    font.pixelSize: 16
-                                                    color: "#e1edff"
-                                                    elide: Text.ElideRight
+                                                id: row
+                                                anchors.fill: parent
+                                                anchors.margins: 10
+                                                spacing: 10
+
+                                                ColumnLayout {
+                                                    spacing: 4
                                                     Layout.fillWidth: true
-                                                }
-                                                Rectangle {
-                                                    visible: isCurrentLobby && backend.isHost
-                                                    radius: 8
-                                                    color: "#142033"
-                                                    border.color: "#23c9a9"
-                                                    implicitHeight: 22
-                                                    implicitWidth: badgeText.implicitWidth + 14
-                                                    Label {
-                                                        id: badgeText
-                                                        anchors.centerIn: parent
-                                                        text: qsTr("你正在主持")
-                                                        color: "#23c9a9"
-                                                        font.pixelSize: 11
+
+                                                    RowLayout {
+                                                        spacing: 8
+                                                        Layout.fillWidth: true
+                                                        Label {
+                                                            text: name.length > 0 ? name : qsTr("未命名房间")
+                                                            font.pixelSize: 16
+                                                            color: "#e1edff"
+                                                            elide: Text.ElideRight
+                                                            Layout.fillWidth: true
+                                                        }
+                                                        Rectangle {
+                                                            visible: isCurrentLobby && backend.isHost
+                                                            radius: 8
+                                                            color: "#142033"
+                                                            border.color: "#23c9a9"
+                                                            implicitHeight: 22
+                                                            implicitWidth: badgeText.implicitWidth + 14
+                                                            Label {
+                                                                id: badgeText
+                                                                anchors.centerIn: parent
+                                                                text: qsTr("你正在主持")
+                                                                color: "#23c9a9"
+                                                                font.pixelSize: 11
+                                                            }
+                                                        }
+                                                        Rectangle {
+                                                            visible: isCurrentLobby && backend.isConnected && !backend.isHost
+                                                            radius: 8
+                                                            color: "#142033"
+                                                            border.color: "#2ad2ff"
+                                                            implicitHeight: 22
+                                                            implicitWidth: joinedText.implicitWidth + 14
+                                                            Label {
+                                                                id: joinedText
+                                                                anchors.centerIn: parent
+                                                                text: qsTr("已加入此房间")
+                                                                color: "#2ad2ff"
+                                                                font.pixelSize: 11
+                                                            }
+                                                        }
+                                                    }
+
+                                                    RowLayout {
+                                                        spacing: 6
+                                                        Layout.fillWidth: true
+                                                        Label {
+                                                            text: qsTr("房主: %1").arg(hostName.length > 0 ? hostName : hostId)
+                                                            color: "#8ea4c8"
+                                                            font.pixelSize: 12
+                                                            elide: Text.ElideRight
+                                                            Layout.fillWidth: true
+                                                        }
+                                                        Label {
+                                                            text: qsTr("房间 ID: %1").arg(lobbyId)
+                                                            color: "#7f8cab"
+                                                            font.pixelSize: 12
+                                                        }
                                                     }
                                                 }
-                                                Rectangle {
-                                                    visible: isCurrentLobby && backend.isConnected && !backend.isHost
-                                                    radius: 8
-                                                    color: "#142033"
-                                                    border.color: "#2ad2ff"
-                                                    implicitHeight: 22
-                                                    implicitWidth: joinedText.implicitWidth + 14
+
+                                                Item { Layout.fillWidth: true } // push right
+
+                                                RowLayout {
+                                                    spacing: 10
+                                                    Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                                                     Label {
-                                                        id: joinedText
-                                                        anchors.centerIn: parent
-                                                        text: qsTr("已加入此房间")
-                                                        color: "#2ad2ff"
-                                                        font.pixelSize: 11
+                                                        text: qsTr("共有 %1 人").arg(members)
+                                                        color: "#dce7ff"
+                                                        font.pixelSize: 13
+                                                        horizontalAlignment: Text.AlignRight
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
+                                                    Button {
+                                                        text: isCurrentLobby ? qsTr("已在此房间") : qsTr("加入")
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                        enabled: canJoin
+                                                        onClicked: backend.joinLobby(lobbyId)
+                                                    }
+                                                    Button {
+                                                        text: qsTr("复制 ID")
+                                                        flat: true
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                        onClicked: win.copyBadge(qsTr("房间 ID"), lobbyId)
                                                     }
                                                 }
-                                            }
-
-        RowLayout {
-                                                spacing: 6
-                                                Layout.fillWidth: true
-                                                Label {
-                                                    text: qsTr("房主: %1").arg(hostName.length > 0 ? hostName : hostId)
-                                                    color: "#8ea4c8"
-                                                    font.pixelSize: 12
-                                                    elide: Text.ElideRight
-                                                    Layout.fillWidth: true
-                                                }
-                                                Label {
-                                                    text: qsTr("房间 ID: %1").arg(lobbyId)
-                                                    color: "#7f8cab"
-                                                    font.pixelSize: 12
-                                                }
-                                            }
-                                        }
-
-                                        RowLayout {
-                                            spacing: 10
-                                            Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                                            Layout.preferredWidth: 320
-                                            Layout.minimumWidth: 260
-                                            Layout.maximumWidth: 360
-                                            Item { Layout.fillWidth: true }
-                                            Label {
-                                                text: qsTr("共有 %1 人").arg(members)
-                                                color: "#dce7ff"
-                                                font.pixelSize: 13
-                                                horizontalAlignment: Text.AlignRight
-                                                Layout.alignment: Qt.AlignVCenter
-                                            }
-                                            Button {
-                                                text: isCurrentLobby ? qsTr("已在此房间") : qsTr("加入")
-                                                Layout.alignment: Qt.AlignVCenter
-                                                enabled: canJoin
-                                                onClicked: backend.joinLobby(lobbyId)
-                                            }
-                                            Button {
-                                                text: qsTr("复制 ID")
-                                                flat: true
-                                                Layout.alignment: Qt.AlignVCenter
-                                                onClicked: win.copyBadge(qsTr("房间 ID"), lobbyId)
                                             }
                                         }
                                     }
@@ -921,7 +985,7 @@ ApplicationWindow {
                             Column {
                                 anchors.centerIn: parent
                                 spacing: 6
-                                visible: !backend.lobbyRefreshing && lobbyList.count === 0
+                                visible: !backend.lobbyRefreshing && lobbyRepeater.count === 0
                                 Label { text: qsTr("暂无大厅数据"); color: "#8090b3" }
                                 Label { text: qsTr("点击右上角刷新获取房间列表。"); color: "#62708f"; font.pixelSize: 12 }
                             }
@@ -939,7 +1003,7 @@ ApplicationWindow {
             Frame {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                padding: 20
+                padding: 16
                 Material.elevation: 6
                 background: Rectangle { radius: 12; color: "#111827"; border.color: "#1f2b3c" }
 

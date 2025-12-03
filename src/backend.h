@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <boost/asio.hpp>
+#include <chrono>
 #include <memory>
 #include <thread>
 #include <unordered_map>
@@ -45,6 +46,10 @@ class Backend : public QObject {
       QString roomName READ roomName WRITE setRoomName NOTIFY roomNameChanged)
   Q_PROPERTY(
       bool lobbyRefreshing READ lobbyRefreshing NOTIFY lobbyRefreshingChanged)
+  Q_PROPERTY(QString lobbyFilter READ lobbyFilter WRITE setLobbyFilter NOTIFY
+                 lobbyFilterChanged)
+  Q_PROPERTY(int lobbySortMode READ lobbySortMode WRITE setLobbySortMode NOTIFY
+                 lobbySortModeChanged)
   Q_PROPERTY(
       int inviteCooldown READ inviteCooldown NOTIFY inviteCooldownChanged)
 
@@ -72,6 +77,8 @@ public:
   int inviteCooldown() const { return inviteCooldownSeconds_; }
   QString roomName() const { return roomName_; }
   bool lobbyRefreshing() const { return lobbyRefreshing_; }
+  QString lobbyFilter() const { return lobbyFilter_; }
+  int lobbySortMode() const { return lobbySortMode_; }
 
   void setJoinTarget(const QString &id);
   void setPublishLobby(bool publish);
@@ -79,6 +86,8 @@ public:
   void setLocalBindPort(int port);
   void setFriendFilter(const QString &text);
   void setRoomName(const QString &name);
+  void setLobbyFilter(const QString &text);
+  void setLobbySortMode(int mode);
 
   Q_INVOKABLE void startHosting();
   Q_INVOKABLE void joinHost();
@@ -104,6 +113,8 @@ signals:
   void roomNameChanged();
   void publishLobbyChanged();
   void lobbyRefreshingChanged();
+  void lobbyFilterChanged();
+  void lobbySortModeChanged();
 
 private:
   void tick();
@@ -149,7 +160,10 @@ private:
   int inviteCooldownSeconds_ = 0;
   QString roomName_;
   bool publishLobby_ = false;
+  QString lobbyFilter_;
+  int lobbySortMode_ = 0;
   QString lastLobbyId_;
   QString lastLobbyName_;
   bool lobbyRefreshing_ = false;
+  std::chrono::steady_clock::time_point lastPingBroadcast_;
 };

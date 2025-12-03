@@ -3,12 +3,18 @@
 #include <QAbstractListModel>
 #include <QString>
 #include <vector>
+#include <algorithm>
 
 class LobbiesModel : public QAbstractListModel {
   Q_OBJECT
   Q_PROPERTY(int count READ count NOTIFY countChanged)
+  Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
+  Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode NOTIFY
+                     sortModeChanged)
 
 public:
+  enum SortMode { SortByMembers = 0, SortByName = 1 };
+
   enum Roles {
     LobbyIdRole = Qt::UserRole + 1,
     NameRole,
@@ -35,11 +41,27 @@ public:
   QHash<int, QByteArray> roleNames() const override;
 
   void setLobbies(std::vector<Entry> list);
-  int count() const { return static_cast<int>(entries_.size()); }
+  bool setMemberCount(const QString &lobbyId, int count);
+  bool removeByHostId(const QString &hostId);
+  int count() const { return static_cast<int>(filtered_.size()); }
+  QString filter() const { return filter_; }
+  int sortMode() const { return sortMode_; }
+  void setFilter(const QString &text);
+  void setSortMode(int mode);
 
 signals:
   void countChanged();
+  void filterChanged();
+  void sortModeChanged();
 
 private:
+  std::vector<Entry> filterEntries(const std::vector<Entry> &source) const;
+  bool matchesFilter(const Entry &entry) const;
+  void applyReset(std::vector<Entry> list);
+
   std::vector<Entry> entries_;
+  std::vector<Entry> filtered_;
+  QString filter_;
+  QString filterLower_;
+  int sortMode_ = SortByMembers;
 };

@@ -12,6 +12,7 @@ constexpr const char *kLobbyKeyHostId = "ct_host_id";
 constexpr const char *kLobbyKeyPingLocation = "ct_ping_loc";
 constexpr const char *kLobbyKeyTag = "ct_tag";
 constexpr const char *kLobbyTagValue = "1";
+constexpr const char *kPingPrefix = "PING|";
 } // namespace
 
 SteamFriendsCallbacks::SteamFriendsCallbacks(SteamNetworkingManager *manager,
@@ -42,6 +43,34 @@ void SteamFriendsCallbacks::OnGameLobbyJoinRequested(
 SteamMatchmakingCallbacks::SteamMatchmakingCallbacks(
     SteamNetworkingManager *manager, SteamRoomManager *roomManager)
     : manager_(manager), roomManager_(roomManager) {}
+
+void SteamMatchmakingCallbacks::OnLobbyChatMsg(LobbyChatMsg_t *pCallback) {
+  if (!roomManager_) {
+    return;
+  }
+  CSteamID lobbyId = roomManager_->getCurrentLobby();
+  if (!lobbyId.IsValid() ||
+      lobbyId.ConvertToUint64() != pCallback->m_ulSteamIDLobby) {
+    return;
+  }
+
+  char data[2048]{};
+  EChatEntryType type;
+  CSteamID sender;
+  const int read = SteamMatchmaking()->GetLobbyChatEntry(
+      pCallback->m_ulSteamIDLobby, pCallback->m_iChatID, &sender, data,
+      sizeof(data) - 1, &type);
+  if (read <= 0 || type != k_EChatEntryTypeChatMsg) {
+    return;
+  }
+  CSteamID owner = SteamMatchmaking()->GetLobbyOwner(pCallback->m_ulSteamIDLobby);
+  if (owner.IsValid() && sender.IsValid() && sender != owner) {
+    return; // only trust host broadcast
+  }
+  data[std::min<int>(read, sizeof(data) - 1)] = '\0';
+  const std::string payload(data);
+  roomManager_->handlePingMessage(payload);
+}
 
 void SteamMatchmakingCallbacks::OnLobbyCreated(LobbyCreated_t *pCallback,
                                                bool bIOFailure) {
@@ -125,6 +154,53 @@ void SteamMatchmakingCallbacks::OnLobbyListReceived(LobbyMatchList_t *pCallback,
 
     infos.push_back(std::move(info));
   }
+
+  // Ensure current lobby is present even if not returned by filter (e.g. host
+  //未设置标签或区域过滤不同)
+  CSteamID current = roomManager_->getCurrentLobby();
+  if (current.IsValid()) {
+    const uint64 currentVal = current.ConvertToUint64();
+    const bool exists = std::any_of(
+        infos.begin(), infos.end(),
+        [currentVal](const SteamRoomManager::LobbyInfo &li) {
+          return li.id.ConvertToUint64() == currentVal;
+        });
+    if (!exists) {
+      SteamRoomManager::LobbyInfo info;
+      info.id = current;
+      info.ownerId = SteamMatchmaking()->GetLobbyOwner(current);
+      info.memberCount = SteamMatchmaking()->GetNumLobbyMembers(current);
+      const char *name = SteamMatchmaking()->GetLobbyData(current, kLobbyKeyName);
+      if (name) {
+        info.name = name;
+      }
+      const char *ownerName =
+          SteamMatchmaking()->GetLobbyData(current, kLobbyKeyHostName);
+      if (ownerName) {
+        info.ownerName = ownerName;
+      } else if (info.ownerId.IsValid() && SteamFriends()) {
+        const char *fallback =
+            SteamFriends()->GetFriendPersonaName(info.ownerId);
+        if (fallback) {
+          info.ownerName = fallback;
+        }
+      }
+
+      const char *pingLoc =
+          SteamMatchmaking()->GetLobbyData(current, kLobbyKeyPingLocation);
+      if (hasLocalPing && pingLoc && pingLoc[0] != '\0' &&
+          SteamNetworkingUtils()) {
+        SteamNetworkPingLocation_t remote;
+        if (SteamNetworkingUtils()->ParsePingLocationString(pingLoc, remote)) {
+          info.pingMs = SteamNetworkingUtils()->EstimatePingTimeFromLocalHost(
+              remote);
+        }
+      }
+
+      infos.push_back(std::move(info));
+    }
+  }
+
   roomManager_->lobbyInfos = std::move(infos);
   roomManager_->notifyLobbyListUpdated();
 
@@ -243,6 +319,7 @@ void SteamRoomManager::leaveLobby() {
     if (networkingManager_) {
       networkingManager_->setHostSteamID(CSteamID());
     }
+    remotePings_.clear();
 
     // Clear Rich Presence when leaving lobby
     SteamFriends()->ClearRichPresence();
@@ -412,4 +489,92 @@ void SteamRoomManager::notifyLobbyListUpdated() {
   if (lobbyListCallback_) {
     lobbyListCallback_(lobbyInfos);
   }
+}
+
+void SteamRoomManager::broadcastPings(
+    const std::vector<std::tuple<uint64_t, int, std::string>> &pings) {
+  if (!networkingManager_ || !networkingManager_->isHost() ||
+      currentLobby == k_steamIDNil) {
+    return;
+  }
+  if (!SteamMatchmaking()) {
+    return;
+  }
+  std::string payload(kPingPrefix);
+  bool first = true;
+  for (const auto &entry : pings) {
+    const uint64_t id = std::get<0>(entry);
+    const int ping = std::get<1>(entry);
+    if (ping < 0) {
+      continue;
+    }
+    if (!first) {
+      payload.push_back(';');
+    }
+    first = false;
+    payload += std::to_string(id);
+    payload.push_back(':');
+    payload += std::to_string(ping);
+    payload.push_back(':');
+    payload += std::get<2>(entry);
+  }
+  if (payload.size() <= strlen(kPingPrefix)) {
+    return;
+  }
+  SteamMatchmaking()->SendLobbyChatMsg(
+      currentLobby, payload.c_str(), static_cast<int>(payload.size()));
+}
+
+void SteamRoomManager::handlePingMessage(const std::string &payload) {
+  if (payload.rfind(kPingPrefix, 0) != 0) {
+    return;
+  }
+  const std::string data = payload.substr(strlen(kPingPrefix));
+  size_t start = 0;
+  const auto now = std::chrono::steady_clock::now();
+  while (start < data.size()) {
+    const size_t next = data.find(';', start);
+    const std::string_view part(
+        data.c_str() + start,
+        (next == std::string::npos ? data.size() : next) - start);
+    if (!part.empty()) {
+      const size_t first = part.find(':');
+      const size_t second = part.find(':', first == std::string::npos
+                                             ? std::string::npos
+                                             : first + 1);
+      if (first != std::string::npos && second != std::string::npos &&
+          second > first) {
+        const std::string idStr(part.substr(0, first));
+        const std::string pingStr(part.substr(first + 1, second - first - 1));
+        const std::string relayStr(part.substr(second + 1));
+        try {
+          const uint64_t id = std::stoull(idStr);
+          const int ping = std::stoi(pingStr);
+          if (id > 0 && ping >= 0) {
+            PingInfo &info = remotePings_[id];
+            info.ping = ping;
+            info.relay = relayStr;
+            info.updatedAt = now;
+          }
+        } catch (...) {
+        }
+      }
+    }
+    if (next == std::string::npos) {
+      break;
+    }
+    start = next + 1;
+  }
+}
+
+bool SteamRoomManager::getRemotePing(const CSteamID &id, int &ping,
+                                     std::string &relay) const {
+  const uint64_t key = id.ConvertToUint64();
+  auto it = remotePings_.find(key);
+  if (it == remotePings_.end()) {
+    return false;
+  }
+  ping = it->second.ping;
+  relay = it->second.relay;
+  return ping >= 0;
 }

@@ -72,6 +72,7 @@ public:
   bool startHosting();
   void stopHosting();
   void setLobbyName(const std::string &name);
+  void setAdvertisedMode(bool wantsTun) { advertisedWantsTun_ = wantsTun; }
   void setPublishLobby(bool publish);
   std::string getLobbyName() const;
   void setLobbyListCallback(
@@ -118,6 +119,7 @@ private:
   std::function<void(const std::vector<LobbyInfo> &)> lobbyListCallback_;
   std::string lobbyName_;
   bool publishLobby_ = true;
+  bool advertisedWantsTun_ = false;
   struct PingInfo {
     int ping = -1;
     std::string relay;

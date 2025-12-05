@@ -162,6 +162,7 @@ private:
   void stopVpn();
   void syncVpnPeers();
   void updateVpnInfo();
+  bool applyLobbyModePreference(const CSteamID &lobby);
   bool inTunMode() const { return connectionMode_ == ConnectionMode::Tun; }
   bool inTcpMode() const { return connectionMode_ == ConnectionMode::Tcp; }
   void ensureVpnRunning();

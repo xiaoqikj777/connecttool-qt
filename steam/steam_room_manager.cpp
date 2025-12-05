@@ -533,17 +533,14 @@ void SteamRoomManager::refreshLobbyMetadata() {
     return;
   }
 
+  // Keep the lobby unlisted by removing the discovery tag, but still publish
+  // metadata (mode, owner, ping) so guests can auto-select transport.
   if (!publishLobby_) {
     SteamMatchmaking()->DeleteLobbyData(currentLobby, kLobbyKeyTag);
-    SteamMatchmaking()->DeleteLobbyData(currentLobby, kLobbyKeyName);
-    SteamMatchmaking()->DeleteLobbyData(currentLobby, kLobbyKeyHostId);
-    SteamMatchmaking()->DeleteLobbyData(currentLobby, kLobbyKeyHostName);
-    SteamMatchmaking()->DeleteLobbyData(currentLobby, kLobbyKeyPingLocation);
-    SteamMatchmaking()->DeleteLobbyData(currentLobby, kLobbyKeyMode);
-    return;
+  } else {
+    SteamMatchmaking()->SetLobbyData(currentLobby, kLobbyKeyTag,
+                                     kLobbyTagValue);
   }
-
-  SteamMatchmaking()->SetLobbyData(currentLobby, kLobbyKeyTag, kLobbyTagValue);
 
   std::string nameToUse = lobbyName_;
   if (nameToUse.empty() && SteamFriends()) {
@@ -580,8 +577,9 @@ void SteamRoomManager::refreshLobbyMetadata() {
     SteamMatchmaking()->SetLobbyData(currentLobby, kLobbyKeyPingLocation,
                                      buffer);
   }
+  const bool wantsTun = advertisedWantsTun_;
   SteamMatchmaking()->SetLobbyData(currentLobby, kLobbyKeyMode,
-                                   vpnMode_ ? kLobbyModeTun : kLobbyModeTcp);
+                                   wantsTun ? kLobbyModeTun : kLobbyModeTcp);
 }
 
 void SteamRoomManager::decideTransportForCurrentLobby() {

@@ -331,11 +331,13 @@ ApplicationWindow {
                                         : (backend.tunDeviceName.length > 0
                                         ? qsTr("%1 · 待分配 IP").arg(backend.tunDeviceName)
                                         : qsTr("未启动")),
+                                        copyValue: backend.tunLocalIp,
                                         accent: "#2ad2ff"
                                     }
                                     : {
                                         title: qsTr("连接 IP"),
                                         value: backend.localBindPort > 0 ? qsTr("localhost:%1").arg(backend.localBindPort) : "",
+                                        copyValue: backend.localBindPort > 0 ? qsTr("localhost:%1").arg(backend.localBindPort) : "",
                                         accent: "#2ad2ff"
                                     }
                                 ]
@@ -343,6 +345,7 @@ ApplicationWindow {
                                     required property string title
                                     required property string value
                                     required property string accent
+                                    property string copyValue: value
                                     radius: 10
                                     color: "#151e2f"
                                     border.color: "#243149"
@@ -382,7 +385,7 @@ ApplicationWindow {
                                         anchors.fill: parent
                                         enabled: value.length > 0
                                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: win.copyBadge(title, value)
+                                        onClicked: win.copyBadge(title, copyValue)
                                     }
                                 }
                             }

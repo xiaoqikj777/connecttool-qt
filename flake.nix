@@ -60,7 +60,7 @@
         {
           default = pkgs.stdenv.mkDerivation rec {
             pname = "connecttool-qt";
-            version = "0.1.0";
+            version = "1.4.8";
 
             # Keep entire working tree (including untracked) so new sources are present.
             src = ./.;
@@ -72,6 +72,7 @@
                 ninja
                 pkg-config
                 qt6.wrapQtAppsHook
+                git
               ]
               ++ lib.optionals stdenv.isLinux [ patchelf ];
 
@@ -92,7 +93,9 @@
               "-DCMAKE_BUILD_TYPE=Release"
             ];
 
-            configurePhase = "cmake -B build -S . -G Ninja $cmakeFlags";
+            configurePhase = ''
+              CONNECTTOOL_VERSION=${version} cmake -B build -S . -G Ninja $cmakeFlags
+            '';
             buildPhase = "cmake --build build";
             installPhase = "cmake --install build --prefix $out";
 
@@ -119,6 +122,7 @@
             ];
             CMAKE_EXPORT_COMPILE_COMMANDS = "1";
             shellHook = ''
+              export CONNECTTOOL_VERSION=${self.packages.${system}.default.version}
               echo "Qt: $(qmake --version | grep -o 'Qt version [0-9.]*' | cut -d ' ' -f 3)"
               ln -sf build/compile_commands.json .
             '';

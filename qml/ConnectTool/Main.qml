@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
+import Qt.labs.platform as Platform
 
 ApplicationWindow {
     id: win
@@ -83,6 +84,29 @@ ApplicationWindow {
         interval: 1600
         repeat: false
         onTriggered: win.copyHint = ""
+    }
+
+    Platform.FileDialog {
+        id: updateDirDialog
+        title: qsTr("选择更新保存目录")
+        folder: Platform.StandardPaths.writableLocation(Platform.StandardPaths.DownloadLocation)
+        fileMode: Platform.FileDialog.SaveFile
+        nameFilters: ["*.zip", "*"]
+        onAccepted: {
+            var url = ""
+            if (file) {
+                url = file.toString()
+            } else if (files && files.length > 0) {
+                url = files[0].toString()
+            } else if (folder) {
+                url = folder.toString()
+            }
+            if (!url || url.length === 0) {
+                return;
+            }
+            var path = url.startsWith("file://") ? url.slice(7) : url
+            backend.downloadUpdate(downloadSource.currentIndex === 1, path)
+        }
     }
 
     Dialog {
@@ -1848,6 +1872,67 @@ ApplicationWindow {
                             font.pixelSize: 14
                             wrapMode: Text.WordWrap
                         }
+                        Rectangle {
+                            id: updatePanel
+                            Layout.fillWidth: true
+                            implicitHeight: updateContent.implicitHeight + updateContent.anchors.margins * 2
+                            radius: 10
+                            color: "#0f1725"
+                            border.color: "#1f2b3c"
+
+                            ColumnLayout {
+                                id: updateContent
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+                                    Label {
+                                        text: qsTr("当前版本：%1").arg(backend.appVersion)
+                                        color: "#e6efff"
+                                        font.pixelSize: 14
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.Wrap
+                                    }
+                                    ComboBox {
+                                        id: downloadSource
+                                        model: [qsTr("GitHub"), qsTr("gh-proxy（国内首选）")]
+                                        Layout.preferredWidth: 120
+                                        Component.onCompleted: currentIndex = 0
+                                    }
+                                    Button {
+                                        id: checkUpdateBtnInline
+                                        text: backend.checkingUpdate ? qsTr("检查中…") : qsTr("检查更新")
+                                        enabled: !backend.checkingUpdate
+                                        onClicked: backend.checkForUpdates()
+                                    }
+                                    Button {
+                                        text: backend.downloadingUpdate ? qsTr("下载中…") : qsTr("下载更新")
+                                        enabled: backend.updateAvailable && backend.latestVersion.length > 0 && !backend.downloadingUpdate && backend.latestVersion !== ""
+                                        onClicked: updateDirDialog.open()
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
+
+                                Label {
+                                    text: backend.updateStatusText
+                                    color: "#dce7ff"
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                                ProgressBar {
+                                    visible: backend.downloadingUpdate || backend.downloadProgress > 0
+                                    from: 0
+                                    to: 1
+                                    value: backend.downloadProgress
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
+
                         Rectangle {
                             Layout.fillWidth: true
                             height: 48

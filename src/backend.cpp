@@ -10,24 +10,30 @@
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#include <QDesktopServices>
-#include <QGuiApplication>
-#include <QDir>
 #include <QMetaObject>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QProcess>
 #include <QQmlEngine>
+#include <QSaveFile>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QUrl>
-#include <QFileInfo>
 #include <QVariantMap>
 #include <QtDebug>
 #include <algorithm>
+#include <array>
 #include <chrono>
-#include <limits>
 #include <isteamnetworkingutils.h>
+#include <limits>
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -49,6 +55,10 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#ifndef CONNECTTOOL_VERSION
+#define CONNECTTOOL_VERSION "0.0.0"
+#endif
 
 namespace {
 struct PersonaDisplay {
@@ -188,10 +198,12 @@ void fixSteamEnvForSudo() {
 Backend::Backend(QObject *parent)
     : QObject(parent), steamReady_(false), localPort_(25565),
       localBindPort_(8888), lastTcpClients_(0), lastMemberLogCount_(-1),
-      roomName_(QCoreApplication::translate("Backend", "ConnectTool 房间")) {
+      roomName_(QCoreApplication::translate("Backend", "ConnectTool 房间")),
+      appVersion_(QStringLiteral(CONNECTTOOL_VERSION)) {
   // Set a default app id so Steam can bootstrap in development environments
   qputenv("SteamAppId", QByteArray("480"));
   qputenv("SteamGameId", QByteArray("480"));
+  updateStatusText_.clear();
 
 #ifdef Q_OS_LINUX
   fixSteamEnvForSudo();
@@ -1253,7 +1265,8 @@ void Backend::updateRelayPing() {
         }
 
         QVariantMap entry;
-        entry.insert(QStringLiteral("name"), renderPopId(pops[static_cast<size_t>(i)]));
+        entry.insert(QStringLiteral("name"),
+                     renderPopId(pops[static_cast<size_t>(i)]));
         entry.insert(QStringLiteral("ping"), roundTrip);
         if (via != 0) {
           entry.insert(QStringLiteral("via"), renderPopId(via));
@@ -1320,8 +1333,7 @@ void Backend::sendChatMessage(const QString &text) {
   }
 }
 
-void Backend::pinChatMessage(const QString &steamId,
-                             const QString &displayName,
+void Backend::pinChatMessage(const QString &steamId, const QString &displayName,
                              const QString &avatar, const QString &message,
                              const QDateTime &timestamp) {
   if (!ensureSteamReady(tr("置顶消息"))) {
@@ -1381,9 +1393,11 @@ void Backend::launchSteam(bool useSteamChina) {
   {
     QSettings steamReg("HKEY_CURRENT_USER\\Software\\Valve\\Steam",
                        QSettings::NativeFormat);
-    const QString regPath = steamReg.value(QStringLiteral("SteamPath")).toString();
+    const QString regPath =
+        steamReg.value(QStringLiteral("SteamPath")).toString();
     if (!regPath.isEmpty()) {
-      const QString candidate = QDir(regPath).filePath(QStringLiteral("steam.exe"));
+      const QString candidate =
+          QDir(regPath).filePath(QStringLiteral("steam.exe"));
       if (QFileInfo::exists(candidate)) {
         steamPath = candidate;
       }
@@ -1394,7 +1408,8 @@ void Backend::launchSteam(bool useSteamChina) {
     if (!steamPath.isEmpty() || base.isEmpty()) {
       return;
     }
-    const QString candidate = QDir(base).filePath(QStringLiteral("Steam/steam.exe"));
+    const QString candidate =
+        QDir(base).filePath(QStringLiteral("Steam/steam.exe"));
     if (QFileInfo::exists(candidate)) {
       steamPath = candidate;
     }
@@ -1418,10 +1433,9 @@ void Backend::launchSteam(bool useSteamChina) {
     return;
   }
 
-  setStatusOverride(
-      useSteamChina ? tr("尝试以蒸汽平台启动 Steam…")
-                    : tr("尝试以国际版启动 Steam…"),
-      3000);
+  setStatusOverride(useSteamChina ? tr("尝试以蒸汽平台启动 Steam…")
+                                  : tr("尝试以国际版启动 Steam…"),
+                    3000);
 #else
   Q_UNUSED(useSteamChina);
   qWarning() << "Steam launch switch is only supported on Windows.";
@@ -1522,14 +1536,13 @@ QString Backend::serializePinnedMessage(const ChatModel::Entry &entry) const {
   const QDateTime ts = entry.timestamp.isValid()
                            ? entry.timestamp.toUTC()
                            : QDateTime::currentDateTimeUtc();
-  obj.insert(QStringLiteral("timestamp"),
-             ts.toString(Qt::ISODateWithMs));
+  obj.insert(QStringLiteral("timestamp"), ts.toString(Qt::ISODateWithMs));
   const QJsonDocument doc(obj);
   return QString::fromUtf8(doc.toJson(QJsonDocument::Compact));
 }
 
-ChatModel::Entry
-Backend::populatePinnedEntryAvatar(ChatModel::Entry entry, bool isSelfAuthor) {
+ChatModel::Entry Backend::populatePinnedEntryAvatar(ChatModel::Entry entry,
+                                                    bool isSelfAuthor) {
   entry.isSelf = isSelfAuthor;
   bool ok = false;
   const uint64_t id = entry.steamId.toULongLong(&ok);
@@ -2024,4 +2037,317 @@ void Backend::updateLobbyInfoSignals() {
     lastLobbyName_ = name;
     emit stateChanged();
   }
+}
+
+void Backend::checkForUpdates() {
+  if (checkingUpdate_) {
+    return;
+  }
+  resetUpdateCheck();
+  updateStatusText_ = tr("正在检查更新…");
+  checkingUpdate_ = true;
+  emit updateInfoChanged();
+
+  QNetworkRequest req(QUrl(QStringLiteral(
+      "https://api.github.com/repos/moeleak/connecttool-qt/releases/latest")));
+  req.setHeader(QNetworkRequest::UserAgentHeader,
+                QStringLiteral("connecttool-qt"));
+  currentUpdateReply_ = networkManager_.get(req);
+
+  connect(currentUpdateReply_, &QNetworkReply::finished, this,
+          &Backend::handleUpdateReply);
+}
+
+void Backend::downloadUpdate(bool useProxy, const QString &targetPath) {
+  if (downloadingUpdate_) {
+    return;
+  }
+  if (latestDownloadUrl_.isEmpty()) {
+    updateStatusText_ = tr("没有可用的下载链接，请先检查更新。");
+    emit updateInfoChanged();
+    return;
+  }
+  QString pathInput = targetPath;
+  if (pathInput.isEmpty()) {
+    updateStatusText_ = tr("请选择下载目录。");
+    emit updateInfoChanged();
+    return;
+  }
+  QString chosenDir;
+  QString chosenFileName;
+  const QFileInfo fi(pathInput);
+  const bool endsWithSlash =
+      pathInput.endsWith('/') || pathInput.endsWith('\\');
+  if (!endsWithSlash && (!fi.exists() || fi.isFile())) {
+    chosenDir = fi.dir().absolutePath();
+    chosenFileName = fi.fileName();
+  }
+  if (chosenDir.isEmpty()) {
+    chosenDir = fi.absoluteFilePath();
+  }
+  if (chosenFileName.isEmpty()) {
+    chosenFileName = fi.fileName();
+  }
+
+  QDir dir(chosenDir);
+  if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
+    updateStatusText_ = tr("无法创建下载目录：%1").arg(chosenDir);
+    emit updateInfoChanged();
+    return;
+  }
+
+  const QString urlStr = preferredDownloadUrl(useProxy);
+  if (urlStr.isEmpty()) {
+    updateStatusText_ = tr("下载链接无效。");
+    emit updateInfoChanged();
+    return;
+  }
+
+  resetDownloadState();
+  downloadTargetDir_ = dir.absolutePath();
+  downloadTargetRequested_ = pathInput;
+  downloadingUpdate_ = true;
+  downloadProgress_ = 0.0;
+  downloadSavedPath_.clear();
+  updateStatusText_ = tr("正在下载更新…");
+  emit updateInfoChanged();
+  emit updateDownloadChanged();
+
+  QNetworkRequest req{QUrl(urlStr)};
+  req.setHeader(QNetworkRequest::UserAgentHeader,
+                QStringLiteral("connecttool-qt"));
+  currentDownloadReply_ = networkManager_.get(req);
+
+  connect(currentDownloadReply_, &QNetworkReply::downloadProgress, this,
+          [this](qint64 received, qint64 total) {
+            if (total > 0) {
+              downloadProgress_ =
+                  static_cast<double>(received) / static_cast<double>(total);
+            } else {
+              downloadProgress_ = 0.0;
+            }
+            emit updateDownloadChanged();
+          });
+  connect(currentDownloadReply_, &QNetworkReply::finished, this,
+          &Backend::handleDownloadFinished);
+}
+
+void Backend::handleUpdateReply() {
+  checkingUpdate_ = false;
+  QPointer<QNetworkReply> reply = currentUpdateReply_;
+  currentUpdateReply_.clear();
+
+  if (!reply) {
+    updateStatusText_ = tr("检查失败。");
+    updateAvailable_ = false;
+    latestDownloadUrl_.clear();
+    latestReleasePage_.clear();
+    emit updateInfoChanged();
+    return;
+  }
+
+  const QByteArray payload = reply->readAll();
+  const QNetworkReply::NetworkError error = reply->error();
+  reply->deleteLater();
+  if (error != QNetworkReply::NoError) {
+    updateStatusText_ = tr("检查失败：%1").arg(reply->errorString());
+    updateAvailable_ = false;
+    latestDownloadUrl_.clear();
+    latestReleasePage_.clear();
+    emit updateInfoChanged();
+    return;
+  }
+
+  QJsonParseError parseError{};
+  const QJsonDocument doc = QJsonDocument::fromJson(payload, &parseError);
+  if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+    updateStatusText_ = tr("更新信息解析失败。");
+    updateAvailable_ = false;
+    latestDownloadUrl_.clear();
+    latestReleasePage_.clear();
+    emit updateInfoChanged();
+    return;
+  }
+
+  const QJsonObject obj = doc.object();
+  const QString tag = obj.value(QStringLiteral("tag_name")).toString();
+  latestReleasePage_ = obj.value(QStringLiteral("html_url")).toString();
+  const QJsonArray assets = obj.value(QStringLiteral("assets")).toArray();
+  QString assetUrl;
+  for (const auto &assetVal : assets) {
+    if (!assetVal.isObject()) {
+      continue;
+    }
+    const QJsonObject assetObj = assetVal.toObject();
+    const QString browserUrl =
+        assetObj.value(QStringLiteral("browser_download_url")).toString();
+    if (!browserUrl.isEmpty()) {
+      assetUrl = browserUrl;
+      break;
+    }
+  }
+
+  latestVersion_ =
+      normalizeVersion(tag.isEmpty() ? QStringLiteral("0.0.0") : tag);
+  latestDownloadUrl_ = assetUrl;
+  updateAvailable_ =
+      isVersionNewer(latestVersion_, normalizeVersion(appVersion_));
+
+  if (updateAvailable_) {
+    if (!latestDownloadUrl_.isEmpty()) {
+      updateStatusText_ = tr("发现新版本 %1，可下载更新。").arg(latestVersion_);
+    } else {
+      updateStatusText_ =
+          tr("发现新版本 %1，暂未找到下载链接。").arg(latestVersion_);
+    }
+  } else {
+    updateStatusText_ = tr("当前已是最新版本（%1）。").arg(appVersion_);
+  }
+  emit updateInfoChanged();
+}
+
+void Backend::handleDownloadFinished() {
+  QPointer<QNetworkReply> reply = currentDownloadReply_;
+  currentDownloadReply_.clear();
+  downloadingUpdate_ = false;
+
+  if (!reply) {
+    updateStatusText_ = tr("下载已取消。");
+    emit updateInfoChanged();
+    emit updateDownloadChanged();
+    return;
+  }
+
+  const QNetworkReply::NetworkError err = reply->error();
+  const QByteArray data = reply->readAll();
+  const QUrl finalUrl = reply->url();
+  reply->deleteLater();
+
+  if (err != QNetworkReply::NoError) {
+    updateStatusText_ = tr("下载失败：%1").arg(reply->errorString());
+    emit updateInfoChanged();
+    emit updateDownloadChanged();
+    return;
+  }
+
+  QFileInfo requested(downloadTargetRequested_.isEmpty()
+                          ? downloadTargetDir_
+                          : downloadTargetRequested_);
+  QString fileName = QFileInfo(finalUrl.path()).fileName();
+  if (fileName.isEmpty()) {
+    fileName =
+        latestVersion_.isEmpty()
+            ? QStringLiteral("connecttool-qt-release.bin")
+            : QStringLiteral("connecttool-qt-%1.zip").arg(latestVersion_);
+  }
+
+  QString targetDir = downloadTargetDir_;
+  if (targetDir.isEmpty()) {
+    targetDir =
+        QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+  }
+
+  // If user specified a filename in the requested path, prefer it.
+  if (requested.exists() && requested.isFile()) {
+    targetDir = requested.dir().absolutePath();
+    fileName = requested.fileName();
+  } else if (!requested.exists() && !requested.fileName().isEmpty() &&
+             !downloadTargetDir_.endsWith('/') &&
+             !downloadTargetDir_.endsWith('\\')) {
+    targetDir = requested.dir().absolutePath();
+    fileName = requested.fileName();
+  }
+  if (!fileName.contains('.')) {
+    fileName.append(QStringLiteral(".zip"));
+  }
+
+  const QString targetPath = QDir(targetDir).filePath(fileName);
+  QSaveFile file(targetPath);
+  if (!file.open(QIODevice::WriteOnly)) {
+    updateStatusText_ = tr("保存文件失败：%1").arg(file.errorString());
+    emit updateInfoChanged();
+    emit updateDownloadChanged();
+    return;
+  }
+  if (file.write(data) != data.size() || !file.commit()) {
+    updateStatusText_ = tr("保存文件失败：%1").arg(file.errorString());
+    emit updateInfoChanged();
+    emit updateDownloadChanged();
+    return;
+  }
+
+  downloadProgress_ = 1.0;
+  downloadSavedPath_ = targetPath;
+  updateStatusText_ = tr("已下载到 %1").arg(downloadSavedPath_);
+  emit updateInfoChanged();
+  emit updateDownloadChanged();
+}
+
+void Backend::resetUpdateCheck() {
+  if (currentUpdateReply_) {
+    currentUpdateReply_->disconnect(this);
+    currentUpdateReply_->deleteLater();
+    currentUpdateReply_.clear();
+  }
+  checkingUpdate_ = false;
+}
+
+void Backend::resetDownloadState() {
+  if (currentDownloadReply_) {
+    currentDownloadReply_->disconnect(this);
+    currentDownloadReply_->deleteLater();
+    currentDownloadReply_.clear();
+  }
+  downloadingUpdate_ = false;
+  downloadProgress_ = 0.0;
+  downloadSavedPath_.clear();
+  downloadTargetDir_.clear();
+  downloadTargetRequested_.clear();
+}
+
+bool Backend::isVersionNewer(const QString &candidate,
+                             const QString &current) const {
+  const auto parse = [](const QString &v) {
+    QStringList parts = v.split('.');
+    while (parts.size() < 3) {
+      parts.append(QStringLiteral("0"));
+    }
+    std::array<int, 3> vals{0, 0, 0};
+    for (int i = 0; i < 3 && i < parts.size(); ++i) {
+      bool ok = false;
+      vals[static_cast<size_t>(i)] = parts[i].toInt(&ok);
+      if (!ok) {
+        vals[static_cast<size_t>(i)] = 0;
+      }
+    }
+    return vals;
+  };
+
+  const auto a = parse(candidate);
+  const auto b = parse(current);
+  if (a[0] != b[0]) {
+    return a[0] > b[0];
+  }
+  if (a[1] != b[1]) {
+    return a[1] > b[1];
+  }
+  return a[2] > b[2];
+}
+
+QString Backend::normalizeVersion(const QString &input) const {
+  QString v = input.trimmed();
+  if (v.startsWith('v') || v.startsWith('V')) {
+    v = v.mid(1);
+  }
+  return v.isEmpty() ? QStringLiteral("0.0.0") : v;
+}
+
+QString Backend::preferredDownloadUrl(bool useProxy) const {
+  if (latestDownloadUrl_.isEmpty()) {
+    return {};
+  }
+  if (!useProxy) {
+    return latestDownloadUrl_;
+  }
+  return QStringLiteral("https://gh-proxy.org/%1").arg(latestDownloadUrl_);
 }

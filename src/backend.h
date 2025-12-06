@@ -4,12 +4,16 @@
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <boost/asio.hpp>
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <QPointer>
 #include <thread>
 #include <unordered_map>
+#include <QSaveFile>
 
 #include "friends_model.h"
 #include "chat_model.h"
@@ -65,6 +69,20 @@ class Backend : public QObject {
   Q_PROPERTY(QString tunDeviceName READ tunDeviceName NOTIFY stateChanged)
   Q_PROPERTY(
       int inviteCooldown READ inviteCooldown NOTIFY inviteCooldownChanged)
+  Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+  Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY updateInfoChanged)
+  Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateInfoChanged)
+  Q_PROPERTY(bool checkingUpdate READ checkingUpdate NOTIFY updateInfoChanged)
+  Q_PROPERTY(QString updateStatusText READ updateStatusText NOTIFY
+                 updateInfoChanged)
+  Q_PROPERTY(QString latestReleasePage READ latestReleasePage NOTIFY
+                 updateInfoChanged)
+  Q_PROPERTY(bool downloadingUpdate READ downloadingUpdate NOTIFY
+                 updateDownloadChanged)
+  Q_PROPERTY(double downloadProgress READ downloadProgress NOTIFY
+                 updateDownloadChanged)
+  Q_PROPERTY(QString downloadSavedPath READ downloadSavedPath NOTIFY
+                 updateDownloadChanged)
 
 public:
   enum class ConnectionMode { Tcp = 0, Tun = 1 };
@@ -103,6 +121,15 @@ public:
   int lobbySortMode() const { return lobbySortMode_; }
   QString tunLocalIp() const { return tunLocalIp_; }
   QString tunDeviceName() const { return tunDeviceName_; }
+  QString appVersion() const { return appVersion_; }
+  QString latestVersion() const { return latestVersion_; }
+  QString latestReleasePage() const { return latestReleasePage_; }
+  bool updateAvailable() const { return updateAvailable_; }
+  bool checkingUpdate() const { return checkingUpdate_; }
+  QString updateStatusText() const { return updateStatusText_; }
+  bool downloadingUpdate() const { return downloadingUpdate_; }
+  double downloadProgress() const { return downloadProgress_; }
+  QString downloadSavedPath() const { return downloadSavedPath_; }
 
   void setJoinTarget(const QString &id);
   void setPublishLobby(bool publish);
@@ -133,6 +160,8 @@ public:
                                   const QDateTime &timestamp);
   Q_INVOKABLE void clearPinnedChatMessage();
   Q_INVOKABLE void launchSteam(bool useSteamChina);
+  Q_INVOKABLE void checkForUpdates();
+  Q_INVOKABLE void downloadUpdate(bool useProxy, const QString &targetPath);
 
 signals:
   void stateChanged();
@@ -154,6 +183,8 @@ signals:
   void tunStartDenied();
   void relayPingChanged();
   void relayPopsChanged();
+  void updateInfoChanged();
+  void updateDownloadChanged();
 
 private:
   void tick();
@@ -177,6 +208,13 @@ private:
   QString serializePinnedMessage(const ChatModel::Entry &entry) const;
   ChatModel::Entry populatePinnedEntryAvatar(ChatModel::Entry entry,
                                              bool isSelfAuthor);
+  void resetUpdateCheck();
+  void resetDownloadState();
+  void handleUpdateReply();
+  void handleDownloadFinished();
+  bool isVersionNewer(const QString &candidate, const QString &current) const;
+  QString normalizeVersion(const QString &input) const;
+  QString preferredDownloadUrl(bool useProxy) const;
   void setLobbyRefreshing(bool refreshing);
   void setStatusOverride(const QString &text, int durationMs = 3000);
   void clearStatusOverride();
@@ -246,4 +284,20 @@ private:
   QString tunDeviceName_;
   int relayPingMs_ = -1;
   QVariantList relayPops_;
+  // Update info
+  QString appVersion_;
+  QString latestVersion_;
+  QString latestDownloadUrl_;
+  QString latestReleasePage_;
+  QString updateStatusText_;
+  QString downloadSavedPath_;
+  QString downloadTargetDir_;
+  QString downloadTargetRequested_;
+  bool updateAvailable_ = false;
+  bool checkingUpdate_ = false;
+  bool downloadingUpdate_ = false;
+  double downloadProgress_ = 0.0;
+  QNetworkAccessManager networkManager_;
+  QPointer<QNetworkReply> currentUpdateReply_;
+  QPointer<QNetworkReply> currentDownloadReply_;
 };

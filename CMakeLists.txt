@@ -3,7 +3,15 @@ project(ConnectToolQt LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network)
+find_package(Git QUIET)
+
+# Read version from git tag if available
+set(CONNECTTOOL_VERSION "1.4.8")
+if(DEFINED ENV{CONNECTTOOL_VERSION})
+    set(CONNECTTOOL_VERSION "$ENV{CONNECTTOOL_VERSION}")
+endif()
+message(STATUS "ConnectTool version: ${CONNECTTOOL_VERSION}")
 set(BOOST_MIN_VERSION 1.70)
 if(POLICY CMP0167)
     # Prefer FindBoost when config packages are unavailable (older toolchains)
@@ -146,6 +154,7 @@ target_link_libraries(connecttool-qt PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::Network
     Boost::headers
     Threads::Threads
     ${STEAMWORKS_LIBRARY})
@@ -185,6 +194,8 @@ qt_add_qml_module(connecttool-qt
         qml/ConnectTool/GitHub.svg
         qml/ConnectTool/QQ.svg
         qml/ConnectTool/Menu.svg)
+
+target_compile_definitions(connecttool-qt PRIVATE CONNECTTOOL_VERSION="${CONNECTTOOL_VERSION}")
 
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/steam_appid.txt "480\n")
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/steam_appid.txt DESTINATION bin)

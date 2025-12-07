@@ -85,7 +85,8 @@
                 qt5compat
               ])
               ++ (if pkgs.stdenv.isLinux then [ pkgs.qt6.qtwayland ] else [ ])
-              ++ [ pkgs.boost ];
+              ++ [ pkgs.boost ]
+              ++ (if pkgs.stdenv.isLinux then [ pkgs.SDL2 ] else [ ]);
 
             cmakeFlags = [
               "-DSTEAMWORKS_PATH_HINT=${steamworksHint}"

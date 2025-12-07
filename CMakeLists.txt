@@ -102,6 +102,7 @@ add_executable(connecttool-qt
     src/friends_model.cpp
     src/chat_model.cpp
     src/members_model.cpp
+    src/sound_notifier.cpp
     net/multiplex_manager.cpp
     net/tcp_server.cpp
     net/ip_negotiator.cpp
@@ -128,6 +129,7 @@ target_include_directories(connecttool-qt PRIVATE
     net
     steam
     tun
+    third_party
     ${STEAMWORKS_INCLUDE_DIR})
 
 # Ensure we always get a headers-only target, regardless of which Boost package layout is found.
@@ -160,7 +162,18 @@ target_link_libraries(connecttool-qt PRIVATE
     ${STEAMWORKS_LIBRARY})
 
 if(WIN32)
-    target_link_libraries(connecttool-qt PRIVATE iphlpapi ws2_32)
+    target_link_libraries(connecttool-qt PRIVATE iphlpapi ws2_32 dsound)
+elseif(APPLE)
+    find_library(COREAUDIO_LIBRARY CoreAudio)
+    find_library(AUDIOUNIT_LIBRARY AudioUnit)
+    find_library(AUDIOTOOLBOX_LIBRARY AudioToolbox)
+    target_link_libraries(connecttool-qt PRIVATE
+        ${COREAUDIO_LIBRARY}
+        ${AUDIOUNIT_LIBRARY}
+        ${AUDIOTOOLBOX_LIBRARY})
+else()
+    find_package(SDL2 REQUIRED)
+    target_link_libraries(connecttool-qt PRIVATE SDL2::SDL2)
 endif()
 
 # Ensure the Steam redistributable is next to the executable at build and
@@ -193,7 +206,8 @@ qt_add_qml_module(connecttool-qt
     RESOURCES
         qml/ConnectTool/GitHub.svg
         qml/ConnectTool/QQ.svg
-        qml/ConnectTool/Menu.svg)
+        qml/ConnectTool/Menu.svg
+        qml/ConnectTool/notify.wav)
 
 target_compile_definitions(connecttool-qt PRIVATE CONNECTTOOL_VERSION="${CONNECTTOOL_VERSION}")
 

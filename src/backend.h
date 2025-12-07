@@ -20,11 +20,13 @@
 #include "lobbies_model.h"
 #include "members_model.h"
 #include "steam_room_manager.h"
+#include "sound_notifier.h"
 
 class SteamNetworkingManager;
 class TCPServer;
 class SteamVpnNetworkingManager;
 class SteamVpnBridge;
+class QWindow;
 
 class Backend : public QObject {
   Q_OBJECT
@@ -53,6 +55,8 @@ class Backend : public QObject {
   Q_PROPERTY(QString friendFilter READ friendFilter WRITE setFriendFilter NOTIFY
                  friendFilterChanged)
   Q_PROPERTY(ChatModel *chatModel READ chatModel CONSTANT)
+  Q_PROPERTY(bool chatReminderEnabled READ chatReminderEnabled WRITE
+                 setChatReminderEnabled NOTIFY chatReminderEnabledChanged)
   Q_PROPERTY(bool friendsRefreshing READ friendsRefreshing NOTIFY
                  friendsRefreshingChanged)
   Q_PROPERTY(MembersModel *membersModel READ membersModel CONSTANT)
@@ -110,6 +114,7 @@ public:
   LobbiesModel *lobbiesModel() { return &lobbiesModel_; }
   MembersModel *membersModel() { return &membersModel_; }
   ChatModel *chatModel() { return &chatModel_; }
+  bool chatReminderEnabled() const { return chatReminderEnabled_; }
   int relayPing() const { return relayPingMs_; }
   QVariantList relayPops() const { return relayPops_; }
   QString friendFilter() const { return friendFilter_; }
@@ -162,6 +167,8 @@ public:
   Q_INVOKABLE void launchSteam(bool useSteamChina);
   Q_INVOKABLE void checkForUpdates(bool useProxy = false);
   Q_INVOKABLE void downloadUpdate(bool useProxy, const QString &targetPath);
+  void initializeSound(QWindow *window);
+  void setChatReminderEnabled(bool enabled);
 
 signals:
   void stateChanged();
@@ -185,6 +192,7 @@ signals:
   void relayPopsChanged();
   void updateInfoChanged();
   void updateDownloadChanged();
+  void chatReminderEnabledChanged();
 
 private:
   void tick();
@@ -261,6 +269,7 @@ private:
   LobbiesModel lobbiesModel_;
   MembersModel membersModel_;
   ChatModel chatModel_;
+  SoundNotifier soundNotifier_;
   QString friendFilter_;
   std::unordered_map<uint64_t, QString> memberAvatars_;
   std::unordered_map<uint64_t, int> inviteCooldowns_;
@@ -297,6 +306,7 @@ private:
   bool checkingUpdate_ = false;
   bool downloadingUpdate_ = false;
   double downloadProgress_ = 0.0;
+  bool chatReminderEnabled_ = true;
   QNetworkAccessManager networkManager_;
   QPointer<QNetworkReply> currentUpdateReply_;
   QPointer<QNetworkReply> currentDownloadReply_;

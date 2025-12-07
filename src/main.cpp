@@ -9,6 +9,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickStyle>
+#include <QQuickWindow>
 
 int main(int argc, char *argv[]) {
   QCoreApplication::setOrganizationName(QStringLiteral("ConnectTool"));
@@ -36,6 +37,12 @@ int main(int argc, char *argv[]) {
       []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
 
   engine.loadFromModule("ConnectTool", "Main");
+
+  if (!engine.rootObjects().isEmpty()) {
+    if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first())) {
+      backend.initializeSound(window);
+    }
+  }
 
   return app.exec();
 }

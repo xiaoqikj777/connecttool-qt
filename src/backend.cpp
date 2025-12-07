@@ -386,6 +386,10 @@ Backend::~Backend() {
   roomManager_.reset();
 }
 
+void Backend::initializeSound(QWindow *window) {
+  soundNotifier_.initialize(window);
+}
+
 bool Backend::isHost() const {
   if (!steamReady_) {
     return false;
@@ -964,6 +968,14 @@ void Backend::setFriendFilter(const QString &text) {
   emit friendFilterChanged();
 }
 
+void Backend::setChatReminderEnabled(bool enabled) {
+  if (chatReminderEnabled_ == enabled) {
+    return;
+  }
+  chatReminderEnabled_ = enabled;
+  emit chatReminderEnabledChanged();
+}
+
 void Backend::setLobbyFilter(const QString &text) {
   if (lobbyFilter_ == text) {
     return;
@@ -1475,6 +1487,10 @@ void Backend::handleChatMessage(uint64_t senderId, const QString &message) {
   if (steamReady_ && SteamUser()) {
     const CSteamID myId = SteamUser()->GetSteamID();
     entry.isSelf = myId.IsValid() && senderSteam == myId;
+  }
+
+  if (!entry.isSelf && chatReminderEnabled_) {
+    soundNotifier_.playMessageAlert();
   }
 
   chatModel_.appendMessage(std::move(entry));

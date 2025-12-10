@@ -2107,7 +2107,7 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.openUrlExternally("https://qm.qq.com/q/Kx6WpGxlE4")
+                                onClicked: Qt.openUrlExternally("https://qm.qq.com/q/aXlMOBDbJm")
                             }
                         }
                         ColumnLayout {

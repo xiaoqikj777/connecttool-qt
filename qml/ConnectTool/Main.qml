@@ -2218,13 +2218,13 @@ ApplicationWindow {
                             spacing: 4
                             Layout.fillWidth: true
                             Label { text: qsTr("开发"); color: "#9ab6e3"; font.pixelSize: 13 }
-                            Label { text: qsTr("Ayndpa, MoeLeak"); color: "#dce7ff"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                            Label { text: qsTr("xiaoqi"); color: "#dce7ff"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         }
                         ColumnLayout {
                             spacing: 4
                             Layout.fillWidth: true
                             Label { text: qsTr("测试"); color: "#9ab6e3"; font.pixelSize: 13 }
-                            Label { text: qsTr("旺仔大乔, 梦于枫岚, 虈請, MoeLeak"); color: "#dce7ff"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                            Label { text: qsTr("xiaoqi"); color: "#dce7ff"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         }
                         Rectangle { Layout.fillWidth: true; Layout.fillHeight: true; color: "transparent" }
                     }
